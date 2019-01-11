@@ -8,13 +8,42 @@
 import os
 import sys
 
+import re
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 reload(sys)
 sys.setdefaultencoding('utf8')
 sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
 
 from archive.archive_enum import SaveMode
-from archive.archive_util import get_session, StringUtil
 from archive.model import *
+
+
+def get_session():
+    """
+     获取 sqlalchemy 的SESSION 会话
+    :return:
+    """
+
+    user = os.environ["DIDP_CFG_DB_USER"]
+    password = os.environ["DIDP_CFG_DB_PWD"]
+    db_url = os.environ["DIDP_CFG_DB_JDBC_URL"]
+    x = db_url.index("//")
+    y = db_url.index("?")
+    db_url = db_url[x + 2:y]
+
+    # db_name = db_login_info['db_name']
+
+    engine_str = "mysql+mysqlconnector://{db_user}:{password}@{db_url}".format(
+        db_user=user, password=password,
+        db_url=db_url,
+    )
+    engine = create_engine(engine_str)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    return session
 
 SESSION = get_session()
 
@@ -37,7 +66,6 @@ class CommonParamsDao():
         return result
 
     def get_all_common_code(self):
-
         """
             获取所有的公共参数放于dict中
         :return:
@@ -58,7 +86,7 @@ class MetaColumnInfoDao(object):
     @staticmethod
     def delete_all_column(table_id):
         SESSION.query(DidpMetaColumnInfo).filter(
-            DidpMetaColumnInfo.TABLE_ID==table_id).delete()
+            DidpMetaColumnInfo.TABLE_ID == table_id).delete()
         SESSION.commit()
         SESSION.close()
 
@@ -211,9 +239,8 @@ class MetaTableInfoDao(object):
 
 
 class MetaTableInfoHisDao(object):
-
     @staticmethod
-    def get_recent_table_info_his(table_name,release_date):
+    def get_recent_table_info_his(table_name, release_date):
         """
                     获取最近的表元数据信息
                 :param table_name:
@@ -234,6 +261,11 @@ class MetaTableInfoHisDao(object):
             return result[0]
         else:
             return None
+
+    @staticmethod
+    def get_all():
+        result = SESSION.query(DidpMetaTableInfoHis).all()
+        return result
 
     @staticmethod
     def update_meta_table_info_his(table_his_id, update_dict):
@@ -325,7 +357,7 @@ class MetaTableInfoHisDao(object):
 
     @staticmethod
     def get_meta_table_info_by_detail(schema_id, table_name, data_date,
-                                      bucket_num, comment,
+                                       comment,
                                       table_comment_change_ddl):
         """
             根据详细的字段信息来获取表的元数据
@@ -337,13 +369,13 @@ class MetaTableInfoHisDao(object):
         :param table_comment_change_ddl : 表备注改变是否新增表版本 "true" "false"
         :return:
         """
-        if StringUtil.eq_ignore(table_comment_change_ddl, "true"):
+        if table_comment_change_ddl.lower().__eq__("true"):
             result = SESSION.query(DidpMetaTableInfoHis). \
                 filter(
                 DidpMetaTableInfoHis.SCHEMA_ID == schema_id,
                 DidpMetaTableInfoHis.TABLE_NAME == table_name,
                 DidpMetaTableInfoHis.RELEASE_DATE == data_date,
-                DidpMetaTableInfoHis.BUCKET_NUM == bucket_num,
+
                 DidpMetaTableInfoHis.DESCRIPTION == comment
             ).all()
         else:
@@ -351,8 +383,8 @@ class MetaTableInfoHisDao(object):
                 filter(
                 DidpMetaTableInfoHis.SCHEMA_ID == schema_id,
                 DidpMetaTableInfoHis.TABLE_NAME == table_name,
-                DidpMetaTableInfoHis.RELEASE_DATE == data_date,
-                DidpMetaTableInfoHis.BUCKET_NUM == bucket_num
+                DidpMetaTableInfoHis.RELEASE_DATE == data_date
+
             ).all()
         SESSION.close()
         return result
@@ -411,7 +443,7 @@ class MonRunLogDao(object):
             return result
 
     @staticmethod
-    def find_latest_all_archive( table_name, obj, org, biz_date):
+    def find_latest_all_archive(table_name, obj, org, biz_date):
         """
             获取最近的全量归档
         :param table_name:
@@ -495,3 +527,6 @@ class MetaLockDao(object):
                    DidpHdsStructMetaCtrl.ORG_CODE == org,
                    ).all()
         return result
+if __name__ == '__main__':
+    a = MetaTableInfoHisDao.get_meta_table_info_by_detail("d5852c01c3fd44c6b8ad0bcab9ea0de5","test_archive_chain","2019-01-01 00:00:00","","true" )
+    print a

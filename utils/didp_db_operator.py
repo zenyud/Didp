@@ -88,6 +88,7 @@ class DbOperator(object):
                                                      self.__db_user),
                                                  "password":"{0}".format(
                                                      self.__db_pwd)})
+
         except Exception as e:
             LOG.error("连接数据库失败")
             traceback.print_exc() 

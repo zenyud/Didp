@@ -70,11 +70,11 @@ class HiveFieldInfo(object):
 
     def get_full_type(self):
         if self.col_length and self.col_scale:
-            return self.data_type+"("+self.col_length+","+self.col_scale+")"
+            return str(self.data_type+"("+self.col_length+","+self.col_scale+")")
         elif self.col_length and not self.col_scale:
-            return self.data_type+"("+self.col_length+")"
+            return str(self.data_type+"("+self.col_length+")")
         else:
-            return self.data_type
+            return str(self.data_type)
 
 
 class MetaTypeInfo(object):
@@ -85,8 +85,8 @@ class MetaTypeInfo(object):
         :param field_scale: 字段精度
         """
         self.field_type = field_type
-        self.field_length = field_length
-        self.filed_scale = field_scale
+        self.field_length = int(field_length) if field_length else None
+        self.field_scale = int(field_scale) if field_scale else None
 
     def __eq__(self, obj):
         """
@@ -96,7 +96,7 @@ class MetaTypeInfo(object):
         """
         if type(obj) == type(self):
             if obj.field_length == self.field_length and obj.field_type.__eq__(
-                    self.field_type) and obj.filed_scale == self.filed_scale:
+                    self.field_type) and obj.field_scale == self.field_scale:
                 return True
             else:
                 return False
@@ -109,18 +109,18 @@ class MetaTypeInfo(object):
     def get_whole_type(self):
         types = ["DECIMAL", "DOUBLE", "FLOAT"]
         if self.field_length > 0:
-            if self.filed_scale > 0:
-                return str(
-                    self.field_type + "(" + self.field_length + "," + self.filed_scale + ")")
+            if self.field_scale > 0:
+                return  self.field_type + "(" + str(self.field_length) + "," + \
+                        str(self.field_scale) + ")"
             else:
                 if self.field_type in types:
-                    return str(
-                        self.field_type + "(" + self.field_length + "," + self.filed_scale + ")")
+                    return self.field_type + "(" + str(self.field_length) + "," +\
+                        str(self.field_scale) + ")"
                 else:
-                    return str(self.field_type + "(" + self.field_length + ")")
+                    return self.field_type + "(" + str(self.field_length) + ")"
 
         else:
-            return str(self.field_type)
+            return self.field_type
 
     def set_whole_type(self, whole_type):
         """
@@ -159,5 +159,5 @@ class FieldState(object):
         self.hive_no = hive_no  # -1:预览空位 ; -2:hive 需新增字段
 
 if __name__ == '__main__':
-    a = HiveFieldInfo("a", "varchar(30,2)", "", "", "", "", 1)
-    print a.col_scale
+    a = HiveFieldInfo("aa","varchar(10)",None,None,None,"",1)
+    print a.col_length

@@ -11,7 +11,6 @@ from archive.db_operator import *
 from archive.hive_field_info import HiveFieldInfo
 from utils.didp_logger import Logger
 
-
 reload(sys)
 sys.setdefaultencoding('utf8')
 sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
@@ -117,7 +116,7 @@ class MetaDataService(object):
                 # 拼接完整字段类型
                 full_type = field.COL_TYPE
                 if field.COL_LENGTH and field.COL_SCALE:
-                    full_type = full_type + "({col_len}.{col_scale})".format(
+                    full_type = full_type + "({col_len},{col_scale})".format(
                         col_len=field.COL_LENGTH,
                         col_scale=field.COL_SCALE)
                 elif field.COL_LENGTH and not field.COL_SCALE:
@@ -175,6 +174,7 @@ class MetaDataService(object):
         LOG.info("------------元数据登记检查------------")
         # 接入数据字段信息
         LOG.info("接入表信息解析")
+        LOG.debug("---------------data_date is : ".format(data_date))
         source_field_info = self.parse_input_table(schema_id, source_db_name,
                                                    source_table_name)
         length = len(source_field_info)
@@ -193,7 +193,7 @@ class MetaDataService(object):
 
         # 取元数据信息
         meta_table_info = self.meta_table_info_his_dao.get_meta_table_info_by_detail(
-            schema_id, table_name, data_date, bucket_num, source_table_comment,
+            schema_id, table_name, data_date, source_table_comment,
             table_comment_change_ddl)
 
         if len(meta_table_info) != 0:
@@ -207,6 +207,7 @@ class MetaDataService(object):
             # 比较是否一致
             is_change = self.get_change_result(source_field_info,
                                                meta_field_info, common_dict)
+            LOG.debug("表结构是否发生改变 {0}".format(is_change))
             if not is_change:
                 # 未发生变化 无需进行登记
                 LOG.debug("当日表元数据已登记,无需再登记 ！")
@@ -491,6 +492,7 @@ class MetaDataService(object):
         """
 
         if len(source_field_info) != len(meta_field_info):
+            LOG.debug("-----字段数发生变化------")
             return True
         meta_field_names = [field.COL_NAME.strip().upper() for field in
                             meta_field_info]
@@ -499,6 +501,7 @@ class MetaDataService(object):
 
             if source_field.col_name.upper() not in meta_field_names:
                 # 判断接入字段是否存在于元数据表中
+                LOG.debug("-------出现新增字段-------")
                 return True
             else:
                 for j in range(0, len(meta_field_info)):
@@ -506,12 +509,14 @@ class MetaDataService(object):
                                             source_field.col_name):
                         if not StringUtil.eq_ignore(meta_field_info[j].COL_TYPE,
                                                     source_field.data_type) or \
-                                        meta_field_info[j].COL_LENGTH != \
-                                        source_field.col_length or \
-                                        meta_field_info[j].COL_SCALE != \
-                                        source_field.col_scale or \
-                                        meta_field_info[j].COL_SEQ != \
-                                        source_field.col_seq:
+                            not StringUtil.eq_ignore(meta_field_info[j].COL_LENGTH,
+                                                     source_field.col_length) or \
+                            not StringUtil.eq_ignore(meta_field_info[j].COL_SCALE,
+                                                     source_field.col_scale) or\
+                            not  StringUtil.eq_ignore(meta_field_info[j].COL_SEQ,
+                                        source_field.col_seq):
+
+                            LOG.debug("-----字段的精度发生了变化-------")
                             return True
 
                     # 判断字段备注改变是否增加新版本

@@ -15,9 +15,6 @@ sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
 from uuid import uuid1
 
 import datetime
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 from archive.archive_enum import PartitionKey, AddColumn
 from archive.db_operator import SESSION, CommonParamsDao
 from archive.hive_field_info import HiveFieldInfo
@@ -27,31 +24,7 @@ from utils.didp_logger import Logger
 from utils.didp_tools import get_db_login_info
 
 
-
 LOG = Logger()
-
-
-
-def get_session():
-    """
-     获取 sqlalchemy 的SESSION 会话
-    :return:
-    """
-
-    user = os.environ["DIDP_CFG_DB_USER"]
-    password =os.environ["DIDP_CFG_DB_PWD"]
-    db_url = os.environ["DIDP_CFG_DB_JDBC_URL"]
-    # db_name = db_login_info['db_name']
-
-    engine_str = "mysql+mysqlconnector://{db_user}:{password}@{db_url}".format(
-        db_user=user, password=password,
-        db_url=db_url,
-        )
-    engine = create_engine(engine_str)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-
-    return session
 
 
 def get_uuid():
@@ -214,6 +187,7 @@ class HiveUtil(object):
 
     def __init__(self, schema_id):
         self.login_info = get_db_login_info(schema_id)[1]
+        # self.db_oper=None
         self.db_oper = DbOperator(self.login_info["db_user"],
                              self.login_info["db_pwd"], self.hive_class,
                              self.login_info["jdbc_url"], self.driver_path)
@@ -409,3 +383,6 @@ class HiveUtil(object):
             if not StringUtil.eq_ignore(meta_info1.comment, meta_info2.comment):
                 return False
         return True
+
+if __name__ == '__main__':
+    a = HiveUtil("d5852c01c3fd44c6b8ad0bcab9ea0de5")

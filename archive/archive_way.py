@@ -7,9 +7,15 @@
 # Remarks       :
 import abc
 import argparse
+import os
+import sys
+import traceback
 from abc import ABCMeta
+
+reload(sys)
+sys.setdefaultencoding('utf8')
+sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
 from archive.archive_enum import *
-from archive.archive_util import *
 from archive.hive_field_info import *
 from archive.service import *
 from utils.didp_logger import Logger
@@ -48,10 +54,21 @@ class ArchiveData(object):
 
     def __init__(self):
         self.__args = self.archive_init()
+        self.hive_util = HiveUtil(self.__args.schemaID)
         self.last_date = DateUtil.get_day_of_day(self.__args.dataDate, -1)
         self.common_dict = self.init_common_dict()
-        self.hive_util = HiveUtil(self.__args.schemaID)
         self.__print_arguments()
+
+    @property
+    def release_date(self):
+        """
+            格式化数据日期
+        :return:
+        """
+        __data_date = self.args.dataDate
+        __data_date = __data_date[0:4] + "-" + __data_date[4:6] + "-" + \
+                      __data_date[6:] + " 00:00:00"
+        return __data_date
 
     # 拉链临时表名
     @property
@@ -59,7 +76,7 @@ class ArchiveData(object):
         app_name = self.common_dict.get("archive.proc.temporary.table")
         if StringUtil.is_blank(app_name):
             app_name = self.args.tableName + "_hds_tmp"
-        if int(self.args.orgPos) != OrgPos.NONE:
+        if int(self.args.orgPos) != OrgPos.NONE.value:
             app_name = app_name + "_" + self.args.org
 
         app_name = app_name.replace("OBJ", self.args.obj)
@@ -327,13 +344,14 @@ class ArchiveData(object):
         """
         table_comment = self.hive_util.get_table_comment(self.args.sourceDbName,
                                                          self.args.sourceTableName)
+        # 先格式化dataDate
 
         self.meta_data_service.upload_meta_data(self.__args.schemaID,
                                                 self.__args.sourceDbName,
                                                 self.__args.sourceTableName,
                                                 self.__args.dbName,
                                                 self.__args.tableName,
-                                                self.__args.dataDate,
+                                                self.release_date,
                                                 self.__args.bucketsNum,
                                                 self.common_dict,
                                                 table_comment
@@ -443,6 +461,10 @@ class ArchiveData(object):
                 meta_index = meta_field_name_list.index(
                     hive_field.col_name.upper())
                 meta_current_no = meta_field_infos[meta_index].col_seq
+                LOG.debug("----------{0} {1}".format(meta_field_infos[meta_index].col_name,
+                                           meta_field_infos[
+                                               meta_index].col_length
+                                                           ))
                 ddl_type = MetaTypeInfo(
                     meta_field_infos[meta_index].data_type,
                     meta_field_infos[meta_index].col_length,
@@ -501,11 +523,11 @@ class ArchiveData(object):
             field_change_list = None
         for f in field_change_list:
             LOG.info(
-                "filed 字段信息：filed_name:{field_name}|"
+                "field 字段信息：field_name:{field_name}|"
                 "ddl_type:{ddl_type}|hive_type:{hive_type}|hive_no:{hive_no}"
                     .format(field_name=f.field_name,
                             ddl_type=f.ddl_type,
-                            hive_type=f.hive_type,
+                            hive_type=f.hive_type.get_whole_type,
                             hive_no=f.hive_no))
         return field_change_list
 
@@ -634,7 +656,7 @@ class ArchiveData(object):
                 data_scope_name=self.common_dict.get(
                     PartitionKey.DATE_SCOPE.value),
                 data_scope=data_scope)
-        if self.__args.orgPos == OrgPos.PARTITION.value:
+        if int(self.args.orgPos) == OrgPos.PARTITION.value:
             s = s + "{partition_key_name} = '{partition_key}' ,".format(
                 partition_key_name=self.common_dict.get(PartitionKey.ORG.value),
                 partition_key=org
@@ -661,7 +683,7 @@ class ArchiveData(object):
 
                 sql = sql + "{field_name} {field_type} ".format(
                     field_name=field.col_name_quote,
-                    field_type=field.get_full_type)
+                    field_type=field.get_full_type())
                 if not StringUtil.is_blank(field.comment):
                     # 看是否有字段备注
                     sql = sql + "comment '{comment_content}'".format(
@@ -686,7 +708,7 @@ class ArchiveData(object):
         if StringUtil.is_blank(table_alias):
             table_alias = ""
         else:
-            table_alias = table_alias + '.'
+            table_alias = table_alias + "."
         if not StringUtil.is_blank(data_date):
             tmp_str = tmp_str + "{col_date} = '{value}'".format(
                 col_date=self.common_dict.get(AddColumn.COL_DATE.value),
@@ -703,14 +725,13 @@ class ArchiveData(object):
 
         if len(tmp_str) > 0:
             tmp_str = tmp_str + "and "
-        if not StringUtil.eq_ignore(OrgPos.NONE, org_pos):
+        if not StringUtil.eq_ignore(OrgPos.NONE.value, org_pos):
             col_name = ""
             if StringUtil.eq_ignore(OrgPos.PARTITION.value, org_pos):
-                col_name = self.common_dict(PartitionKey.ORG.value)
+                col_name = self.common_dict.get(PartitionKey.ORG.value)
             elif StringUtil.eq_ignore(OrgPos.COLUMN.value, org_pos):
                 col_name = self.common_dict.get(AddColumn.COL_ORG.value)
-            tmp_str = tmp_str + "{table_alias}.{col_name} = '{col_value}'".format(
-                table_alias=table_alias,
+            tmp_str = tmp_str + table_alias + "{col_name} = '{col_value}'".format(
                 col_name=col_name,
                 col_value=org)
         if where_from_arg:
@@ -743,8 +764,6 @@ class ArchiveData(object):
                         is_exists = True
                         break
                 if is_exists:
-                    LOG.debug(field.field_name)
-                    LOG.debug(field.ddl_type)
                     if self.field_change_list.index(field) == 0:
                         sql = sql + self.build_column(table_alias,
                                                       field.field_name,
@@ -882,7 +901,7 @@ class ArchiveData(object):
         LOG.info("------归档作业开始执行------")
         self.pro_start_date = DateUtil.get_now_date_standy()  # 获取流程执行时间
         LOG.info("判断是否有在进行的任务,并加锁 ")
-        self.lock()
+        # self.lock()
 
         LOG.info("日期分区字段检查 ")
         self.data_partition_check()
@@ -893,7 +912,7 @@ class ArchiveData(object):
         LOG.info("参数初始化2 ")
         self.init_ext()
         LOG.info("元数据处理、表并发处理")
-        self.meta_lock()
+        # self.meta_lock()
 
         LOG.info("元数据登记与更新")
         self.upload_meta_data()
@@ -906,39 +925,40 @@ class ArchiveData(object):
         self.change_table_columns()
 
         LOG.info("元数据并发解锁")
-        self.meta_unlock()
-        LOG.info("源数据的数据量统计")
-        sql = "SELECT COUNT(1) FROM {db_name}.{table_name} ".format(
-            db_name=self.__args.sourceDbName,
-            table_name=self.__args.sourceTableName)
-        self.source_count = int(self.hive_util.execute_sql(sql)[0][0])
-
-        LOG.debug("接入元数据的数据条数为：{0}".format(self.source_count))
-        if self.source_count > 0:
-            # 原始数据不为空
-            LOG.info("数据载入")
-            try:
-                self.load_data()
-            except Exception as e:
-                LOG.exception(e.message)
-                self.error_msg = e.message
-                self.pro_status = "0"
-            LOG.info("统计入库条数")
-            self.archive_count = self.count_archive_data()
-            LOG.info("入库的条数为{0}".format(self.archive_count))
-            self.pro_end_date = DateUtil.get_now_date_standy()
-        else:
-            LOG.debug("归档数据为空！ ")
-        # LOG.info("删除已经存在的数据资产！")
-        # self.delete_exists_archive()
-        LOG.info("登记执行日志")
-        self.register_run_log()
-        self.is_already_load = True
-        LOG.info("解除并发锁")
-        LOG.info("归档完成 ! ")
-        self.unlock()
-        LOG.info("删除临时表")
-        self.clean()
+        # self.meta_unlock()
+        # LOG.info("源数据的数据量统计")
+        # sql = "SELECT COUNT(1) FROM {db_name}.{table_name} ".format(
+        #     db_name=self.__args.sourceDbName,
+        #     table_name=self.__args.sourceTableName)
+        # self.source_count = int(self.hive_util.execute_sql(sql)[0][0])
+        #
+        # LOG.debug("接入元数据的数据条数为：{0}".format(self.source_count))
+        # if self.source_count > 0:
+        #     # 原始数据不为空
+        #     LOG.info("数据载入")
+        #     try:
+        #         self.load_data()
+        #     except Exception as e:
+        #         LOG.exception(e.message)
+        #         self.error_msg = str(e.message)
+        #         self.pro_status = "0"
+        #     LOG.info("统计入库条数")
+        #     if StringUtil.is_blank(self.error_msg):
+        #         self.archive_count = self.count_archive_data()
+        #     LOG.info("入库的条数为{0}".format(self.archive_count))
+        #     self.pro_end_date = DateUtil.get_now_date_standy()
+        # else:
+        #     LOG.debug("归档数据为空！ ")
+        # # LOG.info("删除已经存在的数据资产！")
+        # # self.delete_exists_archive()
+        # LOG.info("登记执行日志")
+        # self.register_run_log()
+        # self.is_already_load = True
+        # LOG.info("解除并发锁")
+        # LOG.info("归档完成 ! ")
+        # self.unlock()
+        # LOG.info("删除临时表")
+        # self.clean()
 
     @abc.abstractmethod
     def init_ext(self):
@@ -974,8 +994,8 @@ class LastAddArchive(ArchiveData):
     def count_archive_data(self):
 
         hql = "select count(1) from {db_name}.{table_name} ".format(
-            db_name=self.args.dbName,
-            table_name=self.args.tableName)
+            db_name=self.args.sourceDbName,
+            table_name=self.args.sourceTableName)
         r = self.hive_util.execute_sql(hql)
         return int(r[0][0])
 
@@ -1032,7 +1052,7 @@ class LastAddArchive(ArchiveData):
         self.hive_util.execute(hql)
         # 插入数据
 
-        hql = ""
+
         hql = "from {source_db_name}.{source_table_name} " \
               "insert into table {db_name}.{table_name} {partition_sql}" \
               "select '{data_date}',".format(
@@ -1097,8 +1117,8 @@ class LastAllArchive(ArchiveData):
 
     def count_archive_data(self):
         hql = "select count(1) from {db_name}.{table_name} ".format(
-            db_name=self.args.dbName,
-            table_name=self.args.tableName)
+            db_name=self.args.sourceDbName,
+            table_name=self.args.sourceTableName)
         r = self.hive_util.execute_sql(hql)
         return int(r[0][0])
 
@@ -1138,7 +1158,8 @@ class LastAllArchive(ArchiveData):
 
     def load_data(self):
         # self.pre_table = self.temp_db + "." + self.input_table_name
-        if StringUtil.eq_ignore(self.args.sourceDataMode, SourceDataMode.ADD):
+        if StringUtil.eq_ignore(self.args.sourceDataMode,
+                                SourceDataMode.ADD.value):
             # 增求全
             self.load_data_add()
         else:
@@ -1157,10 +1178,11 @@ class LastAllArchive(ArchiveData):
             col_date=self.common_dict.get(AddColumn.COL_DATE.value),
             data_date=self.args.dataDate
         )
-        if int(OrgPos.COLUMN) == self.args.orgPos:
+        if OrgPos.COLUMN.value == int(self.args.orgPos):
             hql = hql + " and {col_org} = '{org}' ".format(
                 col_org=self.common_dict.get(AddColumn.COL_ORG.value),
                 org=self.args.org)
+        LOG.info("删除数据的SQL为 ：{0}".format(hql))
         self.hive_util.execute(hql)
         LOG.info("根据input表主键删除源表数据")
         hql = "DELETE FROM {db_name}.{table_name} {partition_sql} as A  " \
@@ -1186,6 +1208,7 @@ class LastAllArchive(ArchiveData):
                     build_key_sql_on=self.build_key_sql_on("A", "B",
                                                            self.pk_list)
                     )
+        LOG.info("删除源表数据的SQL为:{0}".format(hql))
         self.hive_util.execute(hql)
         # 插入数据
         LOG.debug("将数据插入归档表")
@@ -1205,6 +1228,7 @@ class LastAllArchive(ArchiveData):
         if OrgPos.COLUMN.value == int(self.args.orgPos):
             hql = hql + " '{0}', ".format(self.args.org)
         hql = hql + self.build_load_column_sql(None, True)
+        LOG.info("归档的SQL为:{0}".format(hql))
         self.hive_util.execute(hql)
 
     def load_data_all(self):
@@ -1352,10 +1376,10 @@ class AddArchive(ArchiveData):
                                             None)
         )
         self.hive_util.execute(hql)
-        if int(self.data_mode) == SourceDataMode.ADD:
+        if int(self.data_mode) == SourceDataMode.ADD.value:
             # 直接入库
             self.load_data1()
-        elif int(self.data_mode) == SourceDataMode.ALL:
+        elif int(self.data_mode) == SourceDataMode.ALL.value:
             # 全求增转换入库
             self.load_data2()
 
@@ -1383,8 +1407,9 @@ class AddArchive(ArchiveData):
             全求增 转换入库
         :return:
         """
+
         meta_info = self.meta_data_service.get_meta_field_info_list(
-            self.args.tableName, self.args.dataDate)
+            self.args.tableName, self.release_date)
 
         pk_list = self.args.pkList
         if pk_list:
@@ -1591,8 +1616,8 @@ class ChainTransArchive(ArchiveData):
 
     def count_archive_data(self):
         hql = "select count(1) from {db_name}.{table_name} ".format(
-            db_name=self.args.dbName,
-            table_name=self.args.tableName)
+            db_name=self.args.sourceDbName,
+            table_name=self.args.sourceTableName)
         r = self.hive_util.execute_sql(hql)
         return int(r[0][0])
 
@@ -1604,14 +1629,18 @@ class ChainTransArchive(ArchiveData):
             chain_sdate=self.common_dict.get(AddColumn.CHAIN_SDATE.value),
             chain_edate=self.common_dict.get(AddColumn.CHAIN_EDATE.value)
         )
-        if int(self.args.orgPos) == OrgPos.COLUMN:
+        if int(self.args.orgPos) == OrgPos.COLUMN.value:
             hql = hql + "{col_org} string ,".format(
                 col_org=self.common_dict.get(AddColumn.COL_ORG.value))
         hql = hql + self.create_table_body(False) + ")"
         tmp_buf = ""
         if not StringUtil.eq_ignore(self.args.dateRange,
                                     DatePartitionRange.ALL_IN_ONE.value):
-            tmp_buf = self.common_dict.get(PartitionKey.ORG.value) + " string,"
+            tmp_buf = self.common_dict.get(PartitionKey.DATE_SCOPE.value) + \
+                      " string,"
+        if int(self.args.orgPos) == OrgPos.PARTITION.value:
+            tmp_buf = tmp_buf + "{partion_org} string,". \
+                format(partion_org=self.common_dict.get(PartitionKey.ORG.value))
         if tmp_buf.__len__() > 0:
             hql = hql + "partitioned by (" + tmp_buf[:-1] + ")"
 
@@ -1624,7 +1653,7 @@ class ChainTransArchive(ArchiveData):
         self.hive_util.execute(hql)
 
     def load_data(self):
-        if int(self.data_mode) == SourceDataMode.ALL:
+        if int(self.data_mode) == SourceDataMode.ALL.value:
             self.load_data_trans_all()
         else:
             self.load_data_trans_add()
@@ -1637,9 +1666,9 @@ class ChainTransArchive(ArchiveData):
         LOG.debug("----------------拉链表归档--------------")
 
         # 更新闭链区的数据
-        hql = "UPDATE FROM {temp_db}.{table_name} {partition_sql} set " \
+        hql = "UPDATE FROM {db_name}.{table_name} {partition_sql} set " \
               "{chain_edate} = '{chain_open_date}' where " \
-            .format(temp_db=self.temp_db,
+            .format(db_name=self.args.dbName,
                     table_name=self.args.tableName,
                     partition_sql=self.create_partition_sql(
                         self.args.dateRange,
@@ -1661,8 +1690,8 @@ class ChainTransArchive(ArchiveData):
         self.hive_util.execute(hql)
 
         LOG.debug("先删除开区间当天的数据开链日期")
-        hql = "DELETE FROM {temp_db}.{table_name} {partition_sql} " \
-              "where ".format(temp_db=self.temp_db,
+        hql = "DELETE FROM {db_name}.{table_name} {partition_sql} " \
+              "where ".format(db_name=self.args.dbName,
                               table_name=self.args.tableName,
                               partition_sql=self.create_partition_sql(
                                   self.args.dateRange,
@@ -1695,7 +1724,7 @@ class ChainTransArchive(ArchiveData):
 
         else:
             hql = "DELETE FROM  {temp_db}.{app_name} {partition_sql} " \
-                  "where 1=1 ".format(temp_db=self.temp_db,
+                  " where 1=1 ".format(temp_db=self.temp_db,
                                       app_name=self.app_table_name1,
                                       partition_sql=self.create_partition_sql(
                                           self.args.dateRange,
@@ -1749,14 +1778,14 @@ class ChainTransArchive(ArchiveData):
                           col2=self.build_sql_column_with_not_compare("B"),
                           data_date=self.args.dataDate,
                           CHAIN_OPENDATE=self.chain_open_date)
-        if int(self.args.orgPos) == OrgPos.COLUMN:
+        if int(self.args.orgPos) == OrgPos.COLUMN.value:
             hql = hql + "'{0}',".format(self.args.org)
         hql = hql + self.build_load_column_sql("A", False) + \
               "FROM {source_db}.{source_table_name} A " \
               "LEFT JOIN (SELECT * FROM {db_name}.{table_name} " \
               "WHERE {where_sql} and {chain_edate} ='{chain_open_date}' ) B " \
               "ON  ({on_key}) " \
-              "WHERE  CONCAT_WS('|',{col1}) != CONCAT_WS('|',{col2}) " \
+              " WHERE  CONCAT_WS('|',{col1}) != CONCAT_WS('|',{col2}) " \
                   .format(source_db=self.args.sourceDbName,
                           source_table_name=self.args.sourceTableName,
                           db_name=self.args.dbName,
@@ -1775,13 +1804,15 @@ class ChainTransArchive(ArchiveData):
                           col1=self.build_sql_column_with_not_compare("A"),
                           col2=self.build_sql_column_with_not_compare("B")
                           )
+
+        LOG.info("执行SQL :{0}".format(hql))
         self.hive_util.execute(hql)
 
         LOG.debug("2、通过临时表主键（闭链为当天）删除正式表闭链时间99991231中数据")
         hql = "DELETE FROM {db_name}.{table_name} {partition_sql} AS A " \
-              "WHERE {where_sql} AND EXISTS " \
+              " WHERE {where_sql} AND EXISTS " \
               "(SELECT * FROM {temp_db}.{app_table} AS B " \
-              "WHERE {key_list} AND {chain_edate} ='{data_date}' ) " \
+              " WHERE {key_list} AND {chain_edate} ='{data_date}' ) " \
               "AND {chain_edate} = '{chain_open_date}' " \
             .format(db_name=self.args.dbName,
                     table_name=self.args.tableName,
@@ -1805,6 +1836,8 @@ class ChainTransArchive(ArchiveData):
                     data_date=self.args.data_date,
                     chain_open_date=self.chain_open_date
                     )
+
+        LOG.info("执行SQL: {0}".format(hql))
         self.hive_util.execute(hql)
 
         LOG.debug("3、临时分区数据插入插入正式分区")
@@ -1825,6 +1858,7 @@ class ChainTransArchive(ArchiveData):
               "FROM {temp_db}.{app_table}".format(temp_db=self.temp_db,
                                                   app_table=self.app_table_name1)
 
+        LOG.info("执行SQL: {0}".format(hql))
         self.hive_util.execute(hql)
 
     def load_data_trans_add(self):
@@ -1843,17 +1877,18 @@ class ChainTransArchive(ArchiveData):
                    )
         if int(self.args.orgPos) == OrgPos.COLUMN.value:
             hql = hql + "{col_org} = '{org}' AND ". \
-                format(col_org=self.common_dict.get(AddColumn.COL_ORG),
+                format(col_org=self.common_dict.get(AddColumn.COL_ORG.value),
                        org=self.args.org)
         hql = hql + "{chain_edate} = '{data_date}' ". \
             format(
             chain_edate=self.common_dict.get(AddColumn.CHAIN_EDATE.value),
             data_date=self.args.dataDate)
+        LOG.info("执行SQL :{0}".format(hql))
         self.hive_util.execute(hql)
 
         LOG.debug("先删除开区间当天的数据开链日期")
         hql = "DELETE FROM {db_name}.{table_name} {partition_sql} " \
-              "WHERE".format(db_name=self.args.dbName,
+              " WHERE ".format(db_name=self.args.dbName,
                              table_name=self.args.tableName,
                              partition_sql=self.create_partition_sql(
                                  self.args.dateRange,
@@ -1869,14 +1904,15 @@ class ChainTransArchive(ArchiveData):
             format(
             chain_edate=self.common_dict.get(AddColumn.CHAIN_EDATE.value),
             data_date=self.args.dataDate)
+        LOG.info("执行SQL :{0}".format(hql))
         self.hive_util.execute(hql)
 
         LOG.debug("写入闭区间")
         hql = "UPDATE {db_name}.{table_name} {partition_sql} AS A " \
               "SET {chain_edate} = '{data_date}'  " \
-              "WHERE  {where_sql} AND EXISTS " \
+              " WHERE  {where_sql} AND EXISTS " \
               "(SELECT 1 FROM {source_db}.{source_table} AS B " \
-              "WHERE {pk_sql}) AND " \
+              " WHERE {pk_sql}) AND " \
               "{chain_edate} = '{chain_open_date}'". \
             format(db_name=self.args.dbName,
                    table_name=self.args.tableName,
@@ -1896,6 +1932,7 @@ class ChainTransArchive(ArchiveData):
                    pk_sql=self.build_key_sql_on("A", "B", self.pk_list),
                    chain_open_date=self.chain_open_date
                    )
+        LOG.info("执行SQL {0}".format(hql))
         self.hive_util.execute(hql)
         LOG.debug("写入开区间")
         hql = "INSERT INTO TABLE {db_name}.{table_name} {partition_sql} " \
@@ -1911,10 +1948,11 @@ class ChainTransArchive(ArchiveData):
         if int(self.args.orgPos) == OrgPos.COLUMN.value:
             hql = hql + "'{0}', ".format(self.args.org)
         hql = hql + self.build_load_column_sql(None, False) + \
-              "FROM {source_db}.{source_table}".format(
+              " FROM {source_db}.{source_table}".format(
                   source_db=self.args.sourceDbName,
                   source_table=self.args.sourceTableName
               )
+        LOG.info("执行SQL :{0}".format(hql))
         self.hive_util.execute(hql)
         LOG.debug("----------------拉链表归档完成--------------")
 
@@ -2037,4 +2075,4 @@ class ChainTransArchive(ArchiveData):
 
 if __name__ == '__main__':
     a = ChainTransArchive()
-    print a.data_mode
+    a.run()
