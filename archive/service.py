@@ -137,17 +137,30 @@ class MetaDataService(object):
             return None
 
     @staticmethod
-    def parse_input_table(schema_id, db_name, table_name):
+    def parse_input_table(schema_id, db_name, table_name, filter_cols):
         """
-            解析接入表结构
+            解析接入表表结构
+        :param schema_id:
+        :param db_name:
+        :param table_name:
+        :param filter_cols: 过滤字段 逗号分割
         :return:
         """
         source_field_infos = []  # 获取接入数据字段列表
         cols = HiveUtil(schema_id).get_table_desc(db_name,
                                                   table_name)
 
+        filter_col_list = None
+        if filter_cols:
+            filter_col_list =[ col.upper() for col in  filter_cols.split(",")]
+
         i = 0
         for col in cols:
+            col_name = col[0]
+            if filter_col_list:
+                # 过滤过滤字段
+                if col_name.upper() in filter_col_list:
+                    continue
             filed_info = HiveFieldInfo(col[0], col[1], col[2], col[3], col[4],
                                        col[5], i)
             source_field_infos.append(filed_info)
@@ -156,11 +169,12 @@ class MetaDataService(object):
 
     def upload_meta_data(self, schema_id, source_db_name, source_table_name,
                          db_name, table_name, data_date, bucket_num,
-                         common_dict, source_table_comment):
+                         common_dict, source_table_comment, filter_cols):
         # type: (str, str, str, str, str, str, str) -> None
 
         """
             登记元数据
+        :param filter_cols: 过滤字段
         :param schema_id:
         :param source_db_name: 源库名
         :param source_table_name: 源表名
@@ -176,7 +190,7 @@ class MetaDataService(object):
         LOG.info("接入表信息解析")
         LOG.debug("---------------data_date is : ".format(data_date))
         source_field_info = self.parse_input_table(schema_id, source_db_name,
-                                                   source_table_name)
+                                                   source_table_name,filter_cols)
         length = len(source_field_info)
         if length == 0:
             raise BizException("接入表信息解析失败！请检查接入表是否存在 ")
