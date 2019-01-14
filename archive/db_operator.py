@@ -443,17 +443,17 @@ class MonRunLogDao(object):
             return result
 
     @staticmethod
-    def find_latest_all_archive(table_name, obj, org, biz_date):
+    def find_latest_all_archive(system, obj, org, biz_date):
         """
             获取最近的全量归档
-        :param table_name:
+        :param system: 系统
         :param obj:
         :param org:
         :param biz_date:
         :return:
         """
         result = SESSION.query(DidpMonRunLog).filter(
-            DidpMonRunLog.TABLE_NAME == table_name,
+            DidpMonRunLog.SYSTEM_KEY == system ,
             DidpMonRunLog.DATA_OBJECT_NAME == obj,
             DidpMonRunLog.BRANCH_NO == org,
             DidpMonRunLog.PROCESS_STATUS == '1',

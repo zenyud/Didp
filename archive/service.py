@@ -606,16 +606,16 @@ class MonRunLogService(object):
                                                          org,
                                                          start_date, end_date)
 
-    def find_latest_all_archive(self, table_name, obj, org, biz_date):
+    def find_latest_all_archive(self,system, obj, org, biz_date):
         """
             查询最近的全量数据归档记录
-        :param table_name: 归档表
+        :param system: 系统
         :param obj: 数据对象
         :param org: 机构
         :param biz_date: 业务日期
         :return:
         """
 
-        return self.mon_run_log_dao.find_latest_all_archive(table_name, obj,
+        return self.mon_run_log_dao.find_latest_all_archive(system, obj,
                                                             org,
                                                             biz_date)

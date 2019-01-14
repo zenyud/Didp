@@ -80,6 +80,8 @@ class ArchiveData(object):
         self.data_date = self.args.dataDate
         self.buckets_num = self.args.bucketsNum
         self.cluster_col = self.args.clusterCol
+        self.source_data_mode = int(self.args.sourceDataMode)
+        self.system = self.args.system
 
     @property
     def release_date(self):
@@ -443,7 +445,7 @@ class ArchiveData(object):
         :param data_date:
         :return:
         """
-        meta_field_infos = MetaDataService().get_meta_field_info_list(
+        meta_field_infos = self.meta_data_service.get_meta_field_info_list(
             table_name, data_date)  # 元数据表中的字段信息
 
         # Hive 中的字段信息
@@ -456,7 +458,8 @@ class ArchiveData(object):
                                                       hive_field_infos)
 
         # 检查 字段类型是否改变
-        self.field_type_change_list = self.check_column_modify()
+        self.field_type_change_list = self. \
+            check_column_modify(self.field_change_list)
 
     @staticmethod
     def get_change_list(meta_field_infos, hive_field_infos):
@@ -548,14 +551,18 @@ class ArchiveData(object):
                             hive_no=f.hive_no))
         return field_change_list
 
-    def check_column_modify(self):
+    @staticmethod
+    def check_column_modify(field_change_list):
+        # type: (list(FieldState)) -> list(FieldState)
         """
-            检查字段类型是否改变
+            检查字段类型是否发生改变
+        :param field_change_list: 字段更改列表
+        :return: 更改字段的集合
         """
         is_error = False
         change_fields = set()  # 存放变更的字段
-        if self.field_change_list is not None:
-            for field in self.field_change_list:
+        if field_change_list is not None:
+            for field in field_change_list:
 
                 meta_type_hive = field.hive_type
                 meta_type_ddl = field.ddl_type
@@ -1005,7 +1012,7 @@ class LastAddArchive(ArchiveData):
         if int(self.args.sourceDataMode) != SourceDataMode.ADD.value:
             raise BizException("当日增量不提供非增量数据模式转换存储!")
 
-        if not StringUtil.eq_ignore(self.args.dateRange,
+        if not StringUtil.eq_ignore(self.data_range,
                                     DatePartitionRange.ALL_IN_ONE.value):
             raise BizException("当日增量归档模式，不允许时间分区 ")
         pass
@@ -1080,7 +1087,7 @@ class LastAddArchive(ArchiveData):
                    source_table_name=self.args.sourceTableName,
                    db_name=self.db_name,
                    table_name=self.table_name,
-                   partition_sql=self.create_partition_sql(self.args.dateRange,
+                   partition_sql=self.create_partition_sql(self.data_range,
                                                            self.data_scope,
                                                            self.args.org),
                    data_date=self.data_date
@@ -1130,11 +1137,11 @@ class LastAllArchive(ArchiveData):
                 if not self.check_run_log(self.last_date, self.last_date):
                     raise BizException("前一天没有做归档,不能做最近全量归档 ")
 
-        if not StringUtil.eq_ignore(self.args.dateRange,
+        if not StringUtil.eq_ignore(self.data_range,
                                     DatePartitionRange.ALL_IN_ONE.value):
             raise BizException(
                 "当日全量归档模式，不允许时间分区;当前时间分区为：{0}".
-                    format(self.args.dateRange))
+                    format(self.data_range))
 
     def count_archive_data(self):
         hql = "select count(1) from {db_name}.{table_name} ".format(
@@ -1193,7 +1200,7 @@ class LastAllArchive(ArchiveData):
               "WHERE {col_date} = '{data_date}' ". \
             format(db_name=self.db_name,
                    table_name=self.table_name,
-                   partition_sql=self.create_partition_sql(self.args.dateRange,
+                   partition_sql=self.create_partition_sql(self.data_range,
                                                            self.data_scope,
                                                            self.args.org),
                    col_date=self.col_date,
@@ -1213,13 +1220,13 @@ class LastAllArchive(ArchiveData):
             .format(db_name=self.db_name,
                     table_name=self.table_name,
                     partition_sql=self.create_partition_sql(
-                        self.args.dateRange,
+                        self.data_range,
                         self.data_scope,
                         self.args.org),
                     where_sql=self.create_where_sql(
                         "A",
                         None,
-                        self.args.dateRange,
+                        self.data_range,
                         self.data_scope,
                         self.args.orgPos,
                         self.args.org,
@@ -1241,7 +1248,7 @@ class LastAllArchive(ArchiveData):
                    db_name=self.db_name,
                    table_name=self.table_name,
                    partition_sql=self.create_partition_sql(
-                       self.args.dateRange,
+                       self.data_range,
                        self.data_scope,
                        self.args.org
                    ),
@@ -1267,7 +1274,7 @@ class LastAllArchive(ArchiveData):
                    db_name=self.db_name,
                    table_name=self.table_name,
                    partition_sql=self.create_partition_sql(
-                       self.args.dateRange,
+                       self.data_range,
                        self.data_scope,
                        self.args.org
                    ),
@@ -1348,7 +1355,7 @@ class AddArchive(ArchiveData):
 
         part_sql = ""
         # 构建partitioned by
-        if not StringUtil.eq_ignore(self.args.dateRange,
+        if not StringUtil.eq_ignore(self.data_range,
                                     DatePartitionRange.ALL_IN_ONE.value):
             part_sql = "{date_scope} string ,".format(
                 date_scope=self.partition_data_scope)
@@ -1367,6 +1374,84 @@ class AddArchive(ArchiveData):
             BUCKET_NUM=self.buckets_num)
         LOG.info("执行SQL: {0}".format(hql))
         self.hive_util.execute(hql)
+
+    def change_table_columns(self):
+        """
+         根据DDL变化信息增加表字段
+        :return:
+        """
+        super(AddArchive, self).change_table_columns()
+        if self.all_table_name is None:
+            return
+        if self.source_data_mode == SourceDataMode.ADD:
+            if self.field_change_list:
+                # 有增量求全，需要避免表字段变化导致增全量表结构不一致，
+                # 两张表字段结构需要一起变动。
+
+                db_name, all_table_name = self.all_table_name.split(".")
+                if not self.has_table_all:
+                    self.has_table_all = self.hive_util. \
+                        exist_table(db_name, all_table_name)
+                    if self.has_table_all:
+                        self.all_org_pos = self.hive_util. \
+                            get_org_pos(db_name, all_table_name)
+
+                if self.has_table_all:
+                    meta_field_infos = self.meta_data_service. \
+                        get_meta_field_info_list(all_table_name, self.data_date)
+                    hive_field_infos = self.hive_util.get_hive_meta_field(
+                        db_name,
+                        all_table_name,
+                        True)
+                    field_change_list2 = self.get_change_list(meta_field_infos,
+                                                              hive_field_infos
+                                                              )
+                    field_type_modify_list2 = self. \
+                        check_column_modify(field_change_list2)
+
+                    # 判断是否有字段变化
+                    change = False
+                    for field in field_change_list2 :
+                        if not StringUtil. \
+                            eq_ignore(field.full_seq,field.current_seq) or \
+                                        field.hive_no < 0 :
+                            # 存在字段变化
+                            change = True
+                    if not change:
+                        field_change_list2 = None
+
+                    # 若发生了字段变化
+                    tmp_buffer = ""
+                    sql = ""
+                    if field_change_list2:
+                        for field in field_change_list2 :
+                            if int(field.hive_no) == -2:
+                                #  Hive需要新增字段
+                                tmp_buffer = " `{col_name}` {col_type} ,".\
+                                    format(col_name=field.col_name,
+                                           col_type=field.ddl_type.get_whole_type)
+
+                        if len(tmp_buffer) > 0 :
+                            sql = "ALTER TABLE {TABLE_ALL} " \
+                                  "ADD COLUMNS ({COLS})".\
+                                format(TABLE_ALL=self.all_table_name,
+                                       COLS=tmp_buffer[:-1])
+                        LOG.info("执行SQL:{0}".format(sql))
+                        self.hive_util.execute(sql)
+
+                    # 发生了字段类型改变
+                    if field_type_modify_list2:
+                        for field in field_type_modify_list2:
+                            sql = "ALTER TABLE {TABLE_ALL} CHANGE COLUMN " \
+                                  " `{COL_NAME}` `{COL_NAME}` {COL_TYPE} ".\
+                                format(TABLE_ALL=self.all_table_name,
+                                       COL_NAME=field.col_name,
+                                       COL_TYPE=field.ddl_type.get_whole_type)
+                            if not StringUtil.is_blank(field.comment_ddl):
+                                sql = sql + " comment '{comment}' ".\
+                                    format(comment=field.comment_ddl)
+                            LOG.info("执行SQL {0}".format(sql))
+                            self.hive_util.execute(sql)
 
     def load_data(self):
         LOG.debug("先根据数据日期删除表中数据")
@@ -1441,7 +1526,7 @@ class AddArchive(ArchiveData):
         yes_day = DateUtil.get_day_of_day(self.data_date, -1)  # 前一天
         # 取得最近一次全量归档信息
         lastest_all_archive = self.mon_run_log_service. \
-            find_latest_all_archive(self.table_name, self.args.obj,
+            find_latest_all_archive(self.system, self.args.obj,
                                     self.args.org, yes_day)
         has_yes_all_data = False  # 判断最近一次全量归档是否在昨日
 
@@ -1470,7 +1555,7 @@ class AddArchive(ArchiveData):
                   "where 1=1 ".format(temp_db=self.temp_db,
                                       app_name=self.app_table_name1,
                                       partition_sql=self.create_partition_sql(
-                                          self.args.dateRange,
+                                          self.data_range,
                                           "0",
                                           "0"
                                       ))
@@ -1486,12 +1571,12 @@ class AddArchive(ArchiveData):
                    SOURCE_TABLE=self.args.sourceTableName,
                    TEMP_DB=self.temp_db,
                    APP_TABLE=self.app_table_name1,
-                   PARTITION=self.create_partition_sql(self.args.dateRange, "0",
+                   PARTITION=self.create_partition_sql(self.data_range, "0",
                                                        "0"),
                    DATA_DATE=self.data_date
                    )
         if int(self.args.orgPos) == OrgPos.COLUMN.value:
-            hql = hql + "'{org}',".format(org=self.args.org)
+            hql = hql + "'{org}',".format(org=self.org)
         hql = hql + self.build_load_column_sql(None, True)
         LOG.info("执行SQL :{0}".format(hql))
         self.hive_util.execute(hql)
@@ -1563,7 +1648,7 @@ class AddArchive(ArchiveData):
                 sql = sql + " AND {COL_DATE} > '{ALL_DATE}' " \
                     .format(COL_DATE=self.col_date,
                             ALL_DATE=lastest_all_archive.BIZ_DATE)
-                date_range = self.args.dateRange
+                date_range = self.data_range
                 # 确定 Date_scope值
                 date_scope = None
                 if StringUtil.eq_ignore(date_range,
@@ -1610,7 +1695,7 @@ class AddArchive(ArchiveData):
                                                        self.args.pkList),
                        DB_NAME=self.db_name,
                        TABLE_NAME=self.table_name,
-                       PARTITION=self.create_partition_sql(self.args.dateRange,
+                       PARTITION=self.create_partition_sql(self.data_range,
                                                            self.data_scope,
                                                            self.args.org),
                        DATA_DATE=self.data_date,
@@ -1640,7 +1725,7 @@ class AllArchive(ArchiveData):
     table_add = None  # 增量历史表表名
     data_range_add = None  # 增量历史表分区范围
     org_pos_add = None  # 增量表机构字段位置
-
+    is_drop_app_table=None
     def __init__(self):
         super(AllArchive, self).__init__()
 
@@ -1716,8 +1801,205 @@ class AllArchive(ArchiveData):
         self.hive_util.execute(HQL)
         pass
 
+    def change_table_columns(self):
+        super(AllArchive, self).change_table_columns()
+        if self.table_add is None:
+            return
+        if self.source_data_mode == SourceDataMode.ALL:
+            if self.field_change_list:
+                # 有增量求全，需要避免表字段变化导致增全量表结构不一致，
+                # 两张表字段结构需要一起变动。
+
+                db_name, add_table_name = self.table_add.split(".")
+                meta_field_infos = self.meta_data_service. \
+                    get_meta_field_info_list(add_table_name, self.data_date)
+                hive_field_infos = self.hive_util.get_hive_meta_field(
+                    db_name,
+                    add_table_name,
+                    True)
+                field_change_list2 = self.get_change_list(meta_field_infos,
+                                                          hive_field_infos
+                                                          )
+                field_type_modify_list2 = self. \
+                    check_column_modify(field_change_list2)
+
+                # 判断是否有字段变化
+                change = False
+                for field in field_change_list2:
+                    if not StringUtil. \
+                            eq_ignore(field.full_seq, field.current_seq) or \
+                                    field.hive_no < 0:
+                        # 存在字段变化
+                        change = True
+                if not change:
+                    field_change_list2 = None
+
+                # 若发生了字段变化
+                tmp_buffer = ""
+                sql = ""
+                if field_change_list2:
+                    for field in field_change_list2:
+                        if int(field.hive_no) == -2:
+                            #  Hive需要新增字段
+                            tmp_buffer = " `{col_name}` {col_type} ,". \
+                                format(col_name=field.col_name,
+                                       col_type=field.ddl_type.get_whole_type)
+
+                    if len(tmp_buffer) > 0:
+                        sql = "ALTER TABLE {ADD_TABLE} " \
+                              "ADD COLUMNS ({COLS})". \
+                            format(ADD_TABLE=self.table_add,
+                                   COLS=tmp_buffer[:-1])
+                    LOG.info("执行SQL:{0}".format(sql))
+                    self.hive_util.execute(sql)
+
+                # 发生了字段类型改变
+                if field_type_modify_list2:
+                    for field in field_type_modify_list2:
+                        sql = "ALTER TABLE {ADD_TABLE} CHANGE COLUMN " \
+                              " `{COL_NAME}` `{COL_NAME}` {COL_TYPE} ". \
+                            format(ADD_TABLE=self.table_add,
+                                   COL_NAME=field.col_name,
+                                   COL_TYPE=field.ddl_type.get_whole_type)
+                        if not StringUtil.is_blank(field.comment_ddl):
+                            sql = sql + " comment '{comment}' ". \
+                                format(comment=field.comment_ddl)
+                        LOG.info("执行SQL {0}".format(sql))
+                        self.hive_util.execute(sql)
+
     def load_data(self):
-        pass
+        #  先根据数据日期删除表中数据
+        hql = "DELETE FROM {DB_NAME}.{TABLE_NAME} {PARTITION} " \
+              "{WHERE_SQL} ". \
+            format(DB_NAME=self.db_name,
+                   TABLE_NAME=self.table_name,
+                   PARTITION=self.create_partition_sql(self.data_range,
+                                                       self.data_scope,
+                                                       self.org
+                                                       ),
+                   WHERE_SQL=self.create_where_sql("", self.data_date,
+                                                   self.data_range,
+                                                   self.data_scope,
+                                                   self.org_pos, self.org,
+                                                   None))
+        LOG.info("执行SQL:{0}".format(hql))
+
+        # 根据数据源模式执行
+
+        if StringUtil.eq_ignore(self.source_data_mode,
+                                SourceDataMode.ALL.value):
+            # 直接入库
+            self.load_data1()
+        elif StringUtil.eq_ignore(self.source_data_mode,
+                                  SourceDataMode.ADD.value):
+            # 增求全转换入库
+            self.load_data2()
+
+    def load_data1(self):
+        """
+         直接入库
+        :return:
+        """
+        hql = " FROM {SOURCE_DB}.{SOURCE_TABEL_NAME} INSERT INTO TABLE " \
+              " {DB_NAME}.{TABLE_NAME} {PARTITION} " \
+              " SELECT '{DATA_DATE}',". \
+            format(SOURCE_DB=self.args.sourceDbName,
+                   SOURCE_TABEL_NAME=self.args.sourceTableName,
+                   DB_NAME=self.db_name,
+                   TABLE_NAME=self.table_name,
+                   PARTITION=self.create_partition_sql(self.data_range,
+                                                       self.data_scope,
+                                                       self.org),
+                   DATA_DATE=self.data_date
+                   )
+        if self.org_pos == OrgPos.COLUMN.value:
+            hql = hql + " '{org}',".format(org=self.org)
+        hql = hql + self.build_load_column_sql(None, True)
+        LOG.info("执行SQL: {0}".format(hql))
+        self.hive_util.execute(hql)
+
+    def load_data2(self):
+        """
+            增求全转换入库
+        :return:
+        """
+
+        meta_info = self.meta_data_service.get_meta_field_info_list(
+            self.table_name, self.release_date)
+        pk_list = self.args.pkList
+        if pk_list:
+            pk_list = pk_list.split("|")
+            if len(pk_list) < 0:
+                raise BizException(
+                    "数据对象{obj} 主键不存在 ！".format(obj=self.args.obj))
+            else:
+                pk_list = [pk.upper() for pk in pk_list]  # 大写
+        key_dict = {}  # 主键名/主键类型 字典
+        # 获取主键字典
+        for pk in pk_list:
+            for field in meta_info:
+                if StringUtil.eq_ignore(pk, meta_info.col_name):
+                    key_dict[pk] = field.data_type
+                    break
+        yes_day = DateUtil.get_day_of_day(self.data_date, -1)  # 前一天
+        # 取最近一次全量归档的信息
+        lastest_all_archive = self.mon_run_log_service.\
+            find_latest_all_archive(self.system, self.args.obj,
+                                    self.org, yes_day)
+        # 判断最近一次归档是否在昨日
+        has_yes_full_data = False
+        if lastest_all_archive:
+            biz_date = lastest_all_archive.BIZ_DATE
+            if StringUtil.eq_ignore(yes_day, biz_date):
+                has_yes_full_data = True
+
+        # 写入临时表
+        if not self.hive_util.exist_table(self.temp_db,
+                                          self.app_table_name1) or \
+                not self.hive_util.compare(
+                    self.db_name, self.table_name, self.temp_db,
+                    self.app_table_name1, False):
+            self.drop_table(self.temp_db, self.app_table_name1)
+
+            hql = "CREATE TABLE {temp_db}.{app_name} " \
+                  "like {db_name}.{table_name}". \
+                format(temp_db=self.temp_db,
+                       db_name=self.db_name,
+                       app_name=self.app_table_name1,
+                       table_name=self.table_name)
+
+        else:
+            hql = "DELETE FROM  {temp_db}.{app_name} {partition_sql} " \
+                  "where 1=1 ".format(temp_db=self.temp_db,
+                                      app_name=self.app_table_name1,
+                                      partition_sql=self.create_partition_sql(
+                                          self.data_range,
+                                          "0",
+                                          "0"
+                                      ))
+        LOG.info("执行SQL:{0}".format(hql))
+        self.hive_util.execute(hql)
+        if self.is_drop_tmp_table:
+            self.is_drop_app_table = True
+        #  入临时表SQL
+        hql = "FROM {SOURCE_DB}.{SOURCE_TABLE} INSERT INTO TABLE " \
+              "{TEMP_DB}.{APP_TABLE} {PARTITION} " \
+              "SELECT '{DATA_DATE}', ". \
+            format(SOURCE_DB=self.args.sourceDbName,
+                   SOURCE_TABLE=self.args.sourceTableName,
+                   TEMP_DB=self.temp_db,
+                   APP_TABLE=self.app_table_name1,
+                   PARTITION=self.create_partition_sql(self.data_range, "0",
+                                                       "0"),
+                   DATA_DATE=self.data_date
+                   )
+        if int(self.args.orgPos) == OrgPos.COLUMN.value:
+            hql = hql + "'{org}',".format(org=self.org)
+        hql = hql + self.build_load_column_sql(None, True)
+        LOG.info("执行SQL :{0}".format(hql))
+        self.hive_util.execute(hql)
+
+        
 
 
 class ChainTransArchive(ArchiveData):
@@ -1792,20 +2074,20 @@ class ChainTransArchive(ArchiveData):
                     )
         #  分区值和封链判断
         if StringUtil.eq_ignore(DatePartitionRange.MONTH.value,
-                                self.args.dateRange):
+                                self.data_range):
             if self.end_date.__eq__(self.data_date):
                 self.is_close_chain = True
                 self.next_date = DateUtil.get_day_of_day(self.data_date, 1)
                 self.next_date_scope = self.next_date[0:6]
         if StringUtil.eq_ignore(DatePartitionRange.QUARTER_YEAR.value,
-                                self.args.dateRange):
+                                self.data_range):
             if self.end_date.__eq__(self.data_date):
                 self.is_close_chain = True
                 self.next_date = DateUtil.get_day_of_day(self.data_date, 1)
                 self.next_date_scope = DateUtil.get_quarter(self.next_date)
 
         if StringUtil.eq_ignore(DatePartitionRange.YEAR.value,
-                                self.args.dateRange):
+                                self.data_range):
             if self.end_date.__eq__(self.data_date):
                 self.is_close_chain = True
                 self.next_date = DateUtil.get_day_of_day(self.data_date, 1)
@@ -1835,7 +2117,7 @@ class ChainTransArchive(ArchiveData):
                 col_org=self.col_org)
         hql = hql + self.create_table_body(False) + ")"
         tmp_buf = ""
-        if not StringUtil.eq_ignore(self.args.dateRange,
+        if not StringUtil.eq_ignore(self.data_range,
                                     DatePartitionRange.ALL_IN_ONE.value):
             tmp_buf = self.partition_data_scope + \
                       " string,"
@@ -1872,7 +2154,7 @@ class ChainTransArchive(ArchiveData):
             .format(db_name=self.db_name,
                     table_name=self.table_name,
                     partition_sql=self.create_partition_sql(
-                        self.args.dateRange,
+                        self.data_range,
                         self.data_scope,
                         self.args.org
                     ),
@@ -1894,7 +2176,7 @@ class ChainTransArchive(ArchiveData):
               "where ".format(db_name=self.db_name,
                               table_name=self.table_name,
                               partition_sql=self.create_partition_sql(
-                                  self.args.dateRange,
+                                  self.data_range,
                                   self.data_scope,
                                   self.args.org
                               ))
@@ -1926,7 +2208,7 @@ class ChainTransArchive(ArchiveData):
                   " where 1=1 ".format(temp_db=self.temp_db,
                                        app_name=self.app_table_name1,
                                        partition_sql=self.create_partition_sql(
-                                           self.args.dateRange,
+                                           self.data_range,
                                            "0",
                                            "0"
                                        ))
@@ -1939,7 +2221,7 @@ class ChainTransArchive(ArchiveData):
               "SELECT A.{chain_sdate},'{data_date}'," \
             .format(temp_db=self.temp_db,
                     app_table_name=self.app_table_name1,
-                    partition_sql=self.create_partition_sql(self.args.dateRange,
+                    partition_sql=self.create_partition_sql(self.data_range,
                                                             self.data_scope,
                                                             self.args.org),
                     chain_sdate=self.chain_sdate,
@@ -1954,7 +2236,7 @@ class ChainTransArchive(ArchiveData):
             .format(db_name=self.db_name,
                     table_name=self.table_name,
                     where_sql=self.create_where_sql(None, None,
-                                                    self.args.dateRange,
+                                                    self.data_range,
                                                     self.data_scope,
                                                     self.args.orgPos,
                                                     self.args.org,
@@ -1989,7 +2271,7 @@ class ChainTransArchive(ArchiveData):
                           table_name=self.table_name,
                           where_sql=self.create_where_sql(None,
                                                           None,
-                                                          self.args.dateRange,
+                                                          self.data_range,
                                                           self.data_scope,
                                                           self.args.orgPos,
                                                           self.args.org,
@@ -2013,12 +2295,12 @@ class ChainTransArchive(ArchiveData):
             .format(db_name=self.db_name,
                     table_name=self.table_name,
                     partition_sql=self.create_partition_sql(
-                        self.args.dateRange,
+                        self.data_range,
                         self.data_scope,
                         self.args.org
                     ),
                     where_sql=self.create_where_sql("A", None,
-                                                    self.args.dateRange,
+                                                    self.data_range,
                                                     self.data_scope,
                                                     self.args.orgPos,
                                                     self.args.org,
@@ -2040,7 +2322,7 @@ class ChainTransArchive(ArchiveData):
               "select {chain_sdate},{chain_edate},". \
             format(db_name=self.db_name,
                    table_name=self.table_name,
-                   partition_sql=self.create_partition_sql(self.args.dateRange,
+                   partition_sql=self.create_partition_sql(self.data_range,
                                                            self.data_scope,
                                                            self.args.org),
                    chain_sdate=self.chain_sdate,
@@ -2062,7 +2344,7 @@ class ChainTransArchive(ArchiveData):
               "SET {chain_edate} = '{chain_open_date}' WHERE ". \
             format(db_name=self.db_name,
                    table_name=self.table_name,
-                   partition_sql=self.create_partition_sql(self.args.dateRange,
+                   partition_sql=self.create_partition_sql(self.data_range,
                                                            self.data_scope,
                                                            self.args.org),
                    chain_edate=self.chain_edate,
@@ -2083,7 +2365,7 @@ class ChainTransArchive(ArchiveData):
               " WHERE ".format(db_name=self.db_name,
                                table_name=self.table_name,
                                partition_sql=self.create_partition_sql(
-                                   self.args.dateRange,
+                                   self.data_range,
                                    self.data_scope,
                                    self.args.org)
                                )
@@ -2107,13 +2389,13 @@ class ChainTransArchive(ArchiveData):
               "{chain_edate} = '{chain_open_date}'". \
             format(db_name=self.db_name,
                    table_name=self.table_name,
-                   partition_sql=self.create_partition_sql(self.args.dateRange,
+                   partition_sql=self.create_partition_sql(self.data_range,
                                                            self.data_scope,
                                                            self.args.org),
                    chain_edate=self.chain_edate,
                    data_date=self.data_date,
                    where_sql=self.create_where_sql("A", None,
-                                                   self.args.dateRange,
+                                                   self.data_range,
                                                    self.data_scope,
                                                    self.args.orgPos,
                                                    self.args.org, None),
@@ -2129,7 +2411,7 @@ class ChainTransArchive(ArchiveData):
               "SELECT '{data_date}','{chain_open_date}', ". \
             format(db_name=self.db_name,
                    table_name=self.table_name,
-                   partition_sql=self.create_partition_sql(self.args.dateRange,
+                   partition_sql=self.create_partition_sql(self.data_range,
                                                            self.data_scope,
                                                            self.args.org),
                    data_date=self.data_date,
@@ -2153,7 +2435,7 @@ class ChainTransArchive(ArchiveData):
               "WHERE ".format(db_name=self.db_name,
                               table_name=self.table_name,
                               partition_sql=self.create_partition_sql(
-                                  self.args.dateRange,
+                                  self.data_range,
                                   self.next_date_scope,
                                   self.args.org)
                               )
@@ -2171,7 +2453,7 @@ class ChainTransArchive(ArchiveData):
               "SELECT '{data_date}','{chain_open_date}', ". \
             format(db_name=self.db_name,
                    table_name=self.table_name,
-                   partiton=self.create_partition_sql(self.args.dateRange,
+                   partiton=self.create_partition_sql(self.data_range,
                                                       self.next_date_scope,
                                                       self.args.org),
                    data_date=self.data_date,
@@ -2185,7 +2467,7 @@ class ChainTransArchive(ArchiveData):
                   format(db_name=self.db_name,
                          table_name=self.table_name,
                          where_sql=self.create_where_sql(None, None,
-                                                         self.args.dateRange,
+                                                         self.data_range,
                                                          self.data_scope,
                                                          self.args.orgPos,
                                                          self.args.org, None),
