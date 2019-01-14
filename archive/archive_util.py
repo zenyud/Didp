@@ -298,13 +298,13 @@ class HiveUtil(object):
     def get_common_dict():
         return CommonParamsDao().get_all_common_code()
 
-    def get_hive_meta_field(self,db_name, table_name, filter):
+    def get_hive_meta_field(self, db_name, table_name, filter):
         # type: (str, str, bool) -> list(HiveFieldInfo)
         """
             获取Hive的元数据信息
         :param db_name:
         :param table_name:
-        :param filter: 是否过滤添加字段
+        :param filter: 是否过滤添加字段(part_org,part_date等)
         :return:  字段信息列表
         """
         result = self.get_table_desc(db_name, table_name)
@@ -318,16 +318,18 @@ class HiveUtil(object):
                 if v:
                     add_cols.add(v.upper().strip())
             for part_col in PartitionKey:
-                v = common_dict.get(part_col.value)
-                if v:
-                    partition_cols.add(v.upper().strip)
+                x = common_dict.get(part_col.value)
+                if x:
+                    partition_cols.add(x.upper().strip())
         i = 0
         hive_meta_info_list = list()  # 字段信息列表
         # 迭代字段
         for x in result:
-            if add_cols.__contains__(x[0].upper().strip()):
+            if x[0].upper().strip() in add_cols:
+                LOG.info("字段{0} 是过滤字段".format(x[0]))
                 continue
-            if partition_cols.__contains__(x[0].upper().strip()):
+            if x[0].upper().strip() in partition_cols:
+                LOG.info("字段{0} 是过滤字段".format(x[0]))
                 continue
             if x[0].__contains__("#") or StringUtil.is_blank(x[0]):
                 continue
@@ -351,6 +353,8 @@ class HiveUtil(object):
         return result
 
     def compare(self, db_name1, table1, db_name2, table2, is_compare_comments):
+
+
         meta1 = self.get_hive_meta_field(db_name1, table1, False)
         meta2 = self.get_hive_meta_field(db_name2, table2, False)
         if not meta1 and not meta2:
@@ -385,4 +389,7 @@ class HiveUtil(object):
         return True
 
 if __name__ == '__main__':
-    a = HiveUtil("d5852c01c3fd44c6b8ad0bcab9ea0de5")
+    hive_util = HiveUtil("d5852c01c3fd44c6b8ad0bcab9ea0de5")
+    x = hive_util.get_hive_meta_field("orc_test","test_archive_chain",True)
+    for a in x :
+        print a.col_name

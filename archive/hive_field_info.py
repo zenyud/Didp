@@ -144,10 +144,10 @@ class MetaTypeInfo(object):
 
 
 class FieldState(object):
-    def __init__(self, field_name, full_seq, current_seq, ddl_type, hive_type,
+    def __init__(self, col_name, full_seq, current_seq, ddl_type, hive_type,
                  comment_hive, comment_ddl, hive_no):
         # type: (object, object, object, MetaTypeInfo, MetaTypeInfo, object, object, object) -> FieldState
-        self.field_name = field_name
+        self.col_name = col_name
         self.full_seq = full_seq  # 完整序号
         self.current_seq = current_seq # 当前序号
         self.ddl_type = ddl_type
@@ -160,4 +160,4 @@ class FieldState(object):
 
 if __name__ == '__main__':
     a = HiveFieldInfo("aa","varchar(10)",None,None,None,"",1)
-    print a.col_length
+    print a.get_full_type
