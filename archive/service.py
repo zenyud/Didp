@@ -2,7 +2,7 @@
 
 # Date Time     : 2019/1/9
 # Write By      : adtec(ZENGYU)
-# Function Desc :
+# Function Desc :  参数库控制
 # History       : 2019/1/9  ZENGYU     Create
 # Remarks       :
 from archive.archive_enum import CommentChange
@@ -17,11 +17,14 @@ sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
 
 LOG = Logger()
 
-last_update_time = DateUtil.get_now_date()
-last_update_user = "hds"
+last_update_time = DateUtil.get_now_date_standy()
+LAST_UPDATE_USER = "hds"
 
 
 class HdsStructControl(object):
+    """
+        归档控制
+    """
     archive_lock_dao = ArchiveLockDao()
     meta_lock_dao = MetaLockDao()
 
@@ -152,15 +155,18 @@ class MetaDataService(object):
 
         filter_col_list = None
         if filter_cols:
-            filter_col_list =[ col.upper() for col in  filter_cols.split(",")]
+            filter_col_list = [col.upper() for col in filter_cols.split(",")]
 
         i = 0
         for col in cols:
             col_name = col[0]
+            if StringUtil.eq_ignore("# Partition Information", col_name):
+                break
             if filter_col_list:
                 # 过滤过滤字段
                 if col_name.upper() in filter_col_list:
                     continue
+
             filed_info = HiveFieldInfo(col[0], col[1], col[2], col[3], col[4],
                                        col[5], i)
             source_field_infos.append(filed_info)
@@ -190,7 +196,8 @@ class MetaDataService(object):
         LOG.info("接入表信息解析")
         LOG.debug("---------------data_date is : ".format(data_date))
         source_field_info = self.parse_input_table(schema_id, source_db_name,
-                                                   source_table_name,filter_cols)
+                                                   source_table_name,
+                                                   filter_cols)
         length = len(source_field_info)
         if length == 0:
             raise BizException("接入表信息解析失败！请检查接入表是否存在 ")
@@ -257,7 +264,7 @@ class MetaDataService(object):
                 TABLE_ID=table_id,
                 SCHEMA_ID=schema_id,
                 LAST_UPDATE_TIME=last_update_time,
-                LAST_UPDATE_USER=last_update_user,
+                LAST_UPDATE_USER=LAST_UPDATE_USER,
                 TABLE_NAME=table_name,
                 BUCKET_NUM=bucket_num,
                 DESCRIPTION=source_table_comment,
@@ -270,7 +277,7 @@ class MetaDataService(object):
                 TABLE_ID=table_id,
                 SCHEMA_ID=schema_id,
                 LAST_UPDATE_TIME=last_update_time,
-                LAST_UPDATE_USER=last_update_user,
+                LAST_UPDATE_USER=LAST_UPDATE_USER,
                 TABLE_NAME=table_name,
                 BUCKET_NUM=bucket_num,
                 DESCRIPTION=source_table_comment,
@@ -293,7 +300,7 @@ class MetaDataService(object):
                     COLUMN_ID=column_id,
                     TABLE_ID=table_id,
                     LAST_UPDATE_TIME=last_update_time,
-                    LAST_UPDATE_USER=last_update_user,
+                    LAST_UPDATE_USER=LAST_UPDATE_USER,
                     COL_SEQ=filed.col_seq,
                     COL_NAME=filed.col_name,
                     DESCRIPTION=filed.comment,
@@ -310,7 +317,7 @@ class MetaDataService(object):
                     COLUMN_ID=column_id,
                     TABLE_ID=table_id,
                     LAST_UPDATE_TIME=last_update_time,
-                    LAST_UPDATE_USER=last_update_user,
+                    LAST_UPDATE_USER=LAST_UPDATE_USER,
                     COL_SEQ=filed.col_seq,
                     COL_NAME=filed.col_name,
                     DESCRIPTION=filed.comment,
@@ -414,7 +421,7 @@ class MetaDataService(object):
                     TABLE_ID=table_id,
                     SCHEMA_ID=schema_id,
                     LAST_UPDATE_TIME=last_update_time,
-                    LAST_UPDATE_USER=last_update_user,
+                    LAST_UPDATE_USER=LAST_UPDATE_USER,
                     TABLE_NAME=table_name,
                     BUCKET_NUM=bucket_num,
                     DESCRIPTION=source_table_comment,
@@ -428,7 +435,7 @@ class MetaDataService(object):
                     TABLE_ID=table_id,
                     SCHEMA_ID=schema_id,
                     LAST_UPDATE_TIME=last_update_time,
-                    LAST_UPDATE_USER=last_update_user,
+                    LAST_UPDATE_USER=LAST_UPDATE_USER,
                     TABLE_NAME=table_name,
                     BUCKET_NUM=bucket_num,
                     DESCRIPTION=source_table_comment,
@@ -445,7 +452,7 @@ class MetaDataService(object):
                         COLUMN_ID=column_id,
                         TABLE_ID=table_id,
                         LAST_UPDATE_TIME=last_update_time,
-                        LAST_UPDATE_USER=last_update_user,
+                        LAST_UPDATE_USER=LAST_UPDATE_USER,
                         COL_SEQ=filed.col_seq,
                         COL_NAME=filed.col_name,
                         DESCRIPTION=filed.comment,
@@ -462,7 +469,7 @@ class MetaDataService(object):
                         COLUMN_ID=column_id,
                         TABLE_ID=table_id,
                         LAST_UPDATE_TIME=last_update_time,
-                        LAST_UPDATE_USER=last_update_user,
+                        LAST_UPDATE_USER=LAST_UPDATE_USER,
                         COL_SEQ=filed.col_seq,
                         COL_NAME=filed.col_name,
                         DESCRIPTION=filed.comment,
@@ -523,13 +530,15 @@ class MetaDataService(object):
                                             source_field.col_name):
                         if not StringUtil.eq_ignore(meta_field_info[j].COL_TYPE,
                                                     source_field.data_type) or \
-                            not StringUtil.eq_ignore(meta_field_info[j].COL_LENGTH,
-                                                     source_field.col_length) or \
-                            not StringUtil.eq_ignore(meta_field_info[j].COL_SCALE,
-                                                     source_field.col_scale) or\
-                            not  StringUtil.eq_ignore(meta_field_info[j].COL_SEQ,
-                                        source_field.col_seq):
-
+                                not StringUtil.eq_ignore(
+                                    meta_field_info[j].COL_LENGTH,
+                                    source_field.col_length) or \
+                                not StringUtil.eq_ignore(
+                                    meta_field_info[j].COL_SCALE,
+                                    source_field.col_scale) or \
+                                not StringUtil.eq_ignore(
+                                    meta_field_info[j].COL_SEQ,
+                                    source_field.col_seq):
                             LOG.debug("-----字段的精度发生了变化-------")
                             return True
 
@@ -620,7 +629,7 @@ class MonRunLogService(object):
                                                          org,
                                                          start_date, end_date)
 
-    def find_latest_all_archive(self,system, obj, org, biz_date):
+    def find_latest_all_archive(self, system, obj, org, biz_date):
         """
             查询最近的全量数据归档记录
         :param system: 系统
@@ -633,3 +642,7 @@ class MonRunLogService(object):
         return self.mon_run_log_dao.find_latest_all_archive(system, obj,
                                                             org,
                                                             biz_date)
+
+
+if __name__ == '__main__':
+    print a

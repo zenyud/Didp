@@ -326,10 +326,8 @@ class HiveUtil(object):
         # 迭代字段
         for x in result:
             if x[0].upper().strip() in add_cols:
-                LOG.info("字段{0} 是过滤字段".format(x[0]))
                 continue
             if x[0].upper().strip() in partition_cols:
-                LOG.info("字段{0} 是过滤字段".format(x[0]))
                 continue
             if x[0].__contains__("#") or StringUtil.is_blank(x[0]):
                 continue
@@ -353,7 +351,6 @@ class HiveUtil(object):
         return result
 
     def compare(self, db_name1, table1, db_name2, table2, is_compare_comments):
-
 
         meta1 = self.get_hive_meta_field(db_name1, table1, False)
         meta2 = self.get_hive_meta_field(db_name2, table2, False)
