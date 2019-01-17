@@ -180,12 +180,13 @@ class MetaTableInfoDao(object):
         SESSION.add(meta_table_info)
         SESSION.commit()
 
-    def get_meta_table_info(self, schema_id, table_name):
+    @staticmethod
+    def get_meta_table_info( schema_id, table_name):
         """
             获取Meta_table_info
         :param schema_id: SCHEMA_ID
         :param table_name: 表名
-        :return:
+        :return: 返回唯一的 表
         """
         meta_table_info = SESSION.query(DidpMetaTableInfo).filter(
             DidpMetaTableInfo.SCHEMA_ID == schema_id,
@@ -193,7 +194,7 @@ class MetaTableInfoDao(object):
         SESSION.close()
         if len(meta_table_info) == 0:
             return None
-        return meta_table_info
+        return meta_table_info[0]
 
     def get_meta_table_info_by_time(self, table_name, release_time):
         """
@@ -208,17 +209,16 @@ class MetaTableInfoDao(object):
         SESSION.close()
         return meta_table_info
 
-    def delete_meta_table_info(self, schema_id, table_name):
+    @staticmethod
+    def delete_meta_table_info(table_id):
         """
-            删除MataTableInfo
-        :param schema_id:
-        :param table_name:
+            删除表元数据
+        :param table_id:
         :return:
         """
 
         SESSION.query(DidpMetaTableInfo).filter(
-            DidpMetaTableInfo.SCHEMA_ID == schema_id,
-            DidpMetaTableInfo.TABLE_NAME == table_name).delete()
+            DidpMetaTableInfo.TABLE_ID == table_id,).delete()
         SESSION.commit()
         SESSION.close()
 
@@ -375,7 +375,6 @@ class MetaTableInfoHisDao(object):
                 DidpMetaTableInfoHis.SCHEMA_ID == schema_id,
                 DidpMetaTableInfoHis.TABLE_NAME == table_name,
                 DidpMetaTableInfoHis.RELEASE_DATE == data_date,
-
                 DidpMetaTableInfoHis.DESCRIPTION == comment
             ).all()
         else:
@@ -384,7 +383,6 @@ class MetaTableInfoHisDao(object):
                 DidpMetaTableInfoHis.SCHEMA_ID == schema_id,
                 DidpMetaTableInfoHis.TABLE_NAME == table_name,
                 DidpMetaTableInfoHis.RELEASE_DATE == data_date
-
             ).all()
         SESSION.close()
         return result

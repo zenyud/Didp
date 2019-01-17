@@ -2,7 +2,7 @@
 
 # Date Time     : 2019/1/9
 # Write By      : adtec(ZENGYU)
-# Function Desc :  参数库控制
+# Function Desc :  操作服务
 # History       : 2019/1/9  ZENGYU     Create
 # Remarks       :
 from archive.archive_enum import CommentChange
@@ -98,20 +98,23 @@ class MetaDataService(object):
     meta_table_info_dao = MetaTableInfoDao()
     meta_column_info_dao = MetaColumnInfoDao()
 
-    def get_meta_field_info_list(self, table_name, data_date):
+    def get_meta_field_info_list(self, schema_id, table_name):
         # type: (str, str) -> list(HiveFieldInfo)
         """
-            获取最近元数据字段信息 封装成Hive字段类型
+            获取元数据字段信息 封装成Hive字段类型
+        :param schema_id:
         :param table_name:
-        :param data_date:
-        :return:
+        :return: list(HiveFieldInfo)
         """
-        meta_table_info = self.meta_table_info_his_dao.get_recent_table_info_his(
-            table_name, data_date)
+        # 表元数据信息
+        meta_table_info = self.meta_table_info_dao.get_meta_table_info(
+            schema_id,
+            table_name)
 
         if meta_table_info:
-            meta_column_info_his = self.meta_column_info_his_dao.get_meta_column_info(
-                meta_table_info.TABLE_HIS_ID)
+            # 字段元数据信息
+            meta_column_info_his = self.meta_column_info_dao. \
+                get_meta_data_by_table(meta_table_info.TABLE_ID)
 
             # 转换成Hive_field_info 类型
             hive_field_infos = list()
@@ -126,6 +129,7 @@ class MetaDataService(object):
                     full_type = full_type + "({col_len})".format(
                         col_len=field.COL_LENGTH)
 
+                # 封装成HiveFieldInfo
                 hive_field_info = HiveFieldInfo(field.COL_NAME,
                                                 full_type,
                                                 field.COL_DEFAULT,
@@ -141,15 +145,18 @@ class MetaDataService(object):
 
     @staticmethod
     def parse_input_table(schema_id, db_name, table_name, filter_cols):
+        # type: (str, str, str, str) -> list(HiveFieldInfo)
         """
             解析接入表表结构
         :param schema_id:
         :param db_name:
         :param table_name:
         :param filter_cols: 过滤字段 逗号分割
-        :return:
+        :return:  list(HiveFieldInfo)
         """
         source_field_infos = []  # 获取接入数据字段列表
+
+        # 字段信息
         cols = HiveUtil(schema_id).get_table_desc(db_name,
                                                   table_name)
 
@@ -173,328 +180,149 @@ class MetaDataService(object):
             i = i + 1
         return source_field_infos
 
-    def upload_meta_data(self, schema_id, source_db_name, source_table_name,
-                         db_name, table_name, data_date, bucket_num,
-                         common_dict, source_table_comment, filter_cols):
-        # type: (str, str, str, str, str, str, str) -> None
+    def upload_meta_data(self, schema_id, db_name, source_ddl, table_name,
+                         data_date, bucket_num,
+                         common_dict, source_table_comment):
+        # type: (str, str, str, str, str, str, dict,str) -> None
 
         """
             登记元数据
         :param filter_cols: 过滤字段
         :param schema_id:
-        :param source_db_name: 源库名
-        :param source_table_name: 源表名
+        :param source_ddl: 源数据 ddl
         :param db_name: 目标库
         :param table_name: 目标表
         :param data_date: 执行日期
         :param bucket_num: 分桶数
+        :param common_dict: 公共代码参数
+        :param source_table_comment: 表备注
         :return: void
         """
         # 检查当日是否已经登记元数据
+        discription = None  # 对元数据变更的描述
         LOG.info("------------元数据登记检查------------")
         # 接入数据字段信息
         LOG.info("接入表信息解析")
         LOG.debug("---------------data_date is : ".format(data_date))
-        source_field_info = self.parse_input_table(schema_id, source_db_name,
-                                                   source_table_name,
-                                                   filter_cols)
+        source_field_info = source_ddl
         length = len(source_field_info)
+
         if length == 0:
             raise BizException("接入表信息解析失败！请检查接入表是否存在 ")
         LOG.info("接入表字段数为：{0}".format(length))
 
-        # 判断表备注该表是否更改元数据版本
-        table_comment_change_ddl = common_dict.get(
-            CommentChange.TABLE_COMMENT_CHANGE_DDL.value)
-
-        # 判断字段备注变化是否更新元数据版本
-        field_comment_change_ddl = common_dict.get(
-            CommentChange.FIELD_COMMENT_CHANGE_DDL.value
-        )
-
         # 取元数据信息
-        meta_table_info = self.meta_table_info_his_dao.get_meta_table_info_by_detail(
-            schema_id, table_name, data_date, source_table_comment,
-            table_comment_change_ddl)
+        meta_table_info = self.get_meta_table(schema_id, table_name)
 
-        if len(meta_table_info) != 0:
+        if meta_table_info:
             # 判断表结构是否发生变化，如果未发生变化 则进行元数据登记
             # 获取源DDL信息
-
             # 获取元数据DDL 信息
-            meta_field_info = self.meta_column_info_his_dao. \
-                get_meta_column_info(meta_table_info[0].TABLE_HIS_ID)
-
-            # 比较是否一致
+            table_id = meta_table_info.TABLE_ID
+            meta_field_info = self.meta_column_info_dao.get_meta_data_by_table(
+                table_id)  # 比较当日多个版本的 元数据
             is_change = self.get_change_result(source_field_info,
                                                meta_field_info, common_dict)
-            LOG.debug("表结构是否发生改变 {0}".format(is_change))
-            if not is_change:
-                # 未发生变化 无需进行登记
+
+            # 表备注是否发生变化
+            table_comment_change = self.get_table_comment_change_result(
+                source_table_comment, meta_table_info.DESCRIPTION, common_dict)
+            if not is_change and not table_comment_change:
                 LOG.debug("当日表元数据已登记,无需再登记 ！")
                 return
-
-        self.register_meta_data(source_field_info, schema_id,
-                                table_name,
-                                data_date, bucket_num,
-                                source_table_comment,
-                                field_comment_change_ddl, common_dict)
-
-    def register_meta_data(self, source_field_info, schema_id,
-                           table_name,
-                           data_date, bucket_num, source_table_comment,
-                           field_comment_change_ddl, common_dict):
-        """
-            元数据登记
-        :return:
-        """
-        # 查找data_date 日期前后是否存在元数据记录
-
-        before_table_infos = self.meta_table_info_his_dao.get_before_meta_table_infos(
-            schema_id, table_name, data_date)  # 最早的表元数据信息
-
-        after_table_infos = self.meta_table_info_his_dao.get_after_meta_table_infos(
-            schema_id, table_name, data_date)  # 最晚的表元数据信息
-
-        if len(before_table_infos) == 0 and len(after_table_infos) == 0:
-            # 说明是新的归档数据 直接登记元数据
-            table_id = get_uuid()
-            # 登记表元数据
-            new_meta_table_info = DidpMetaTableInfo(
-                TABLE_ID=table_id,
-                SCHEMA_ID=schema_id,
-                LAST_UPDATE_TIME=last_update_time,
-                LAST_UPDATE_USER=LAST_UPDATE_USER,
-                TABLE_NAME=table_name,
-                BUCKET_NUM=bucket_num,
-                DESCRIPTION=source_table_comment,
-                RELEASE_DATE=data_date)
-
-            table_his_id = get_uuid()  # 表历史id
-            print "table_his_id %s" % table_his_id
-            new_meta_table_info_his = DidpMetaTableInfoHis(
-                TABLE_HIS_ID=table_his_id,
-                TABLE_ID=table_id,
-                SCHEMA_ID=schema_id,
-                LAST_UPDATE_TIME=last_update_time,
-                LAST_UPDATE_USER=LAST_UPDATE_USER,
-                TABLE_NAME=table_name,
-                BUCKET_NUM=bucket_num,
-                DESCRIPTION=source_table_comment,
-                RELEASE_DATE=data_date
-            )
-            # 写入表元数据表
-            LOG.info("表元数据登记")
-            self.meta_table_info_dao.add_meta_table_info(new_meta_table_info)
-            LOG.info("表元数据登记成功！")
-            # 写入表元数据历史表
-            LOG.info("表历史元数据登记")
-            self.meta_table_info_his_dao.add_meta_table_info_his(
-                new_meta_table_info_his)
-            LOG.info("表历史元数据登记成功 ！ ")
-            # 登记字段元数据
-            LOG.info("登记字段元数据 ")
-            for filed in source_field_info:
-                column_id = get_uuid()
-                meta_field_info = DidpMetaColumnInfo(
-                    COLUMN_ID=column_id,
-                    TABLE_ID=table_id,
-                    LAST_UPDATE_TIME=last_update_time,
-                    LAST_UPDATE_USER=LAST_UPDATE_USER,
-                    COL_SEQ=filed.col_seq,
-                    COL_NAME=filed.col_name,
-                    DESCRIPTION=filed.comment,
-                    COL_TYPE=filed.data_type,
-                    COL_LENGTH=filed.col_length,
-                    COL_SCALE=filed.col_scale,
-                    COL_DEFAULT=filed.default_value,
-                    NULL_FLAG=filed.not_null)
-
-                self.meta_column_info_dao.add_meta_column(meta_field_info)
-
-                meta_field_info_his = DidpMetaColumnInfoHis(
-                    TABLE_HIS_ID=table_his_id,
-                    COLUMN_ID=column_id,
-                    TABLE_ID=table_id,
-                    LAST_UPDATE_TIME=last_update_time,
-                    LAST_UPDATE_USER=LAST_UPDATE_USER,
-                    COL_SEQ=filed.col_seq,
-                    COL_NAME=filed.col_name,
-                    DESCRIPTION=filed.comment,
-                    COL_TYPE=filed.data_type,
-                    COL_LENGTH=filed.col_length,
-                    COL_SCALE=filed.col_scale,
-                    COL_DEFAULT=filed.default_value,
-                    NULL_FLAG=filed.not_null
-                )
-
-                self.meta_column_info_his_dao.add_meta_column_his(
-                    meta_field_info_his)
-            LOG.info("登记字段元数据成功 ！  ")
+            else:
+                # 需要变更元数据信息
+                self.update_meta_info(table_id, schema_id, table_name,
+                                      bucket_num,
+                                      source_table_comment, data_date,
+                                      source_field_info)
+        # 直接登记元数据
         else:
-            before_column_info = []
-            after_column_info = []
-            # 判断前一条是否为空
+            self.register_meta_data(schema_id, source_field_info, table_name,
+                                    bucket_num, source_table_comment, data_date)
 
-            if len(before_table_infos) != 0:
-                # 获取字段记录信息
-                before_column_info = self.meta_column_info_his_dao.get_meta_column_info(
-                    before_table_infos[0].TABLE_HIS_ID)
-            if len(after_table_infos) != 0:
-                after_column_info = self.meta_column_info_his_dao.get_meta_column_info(
-                    after_table_infos[0].TABLE_HIS_ID
-                )
-            LOG.debug("接入数据的字段个数为：{0}".format(len(source_field_info)))
-            for s_f in source_field_info:
-                LOG.debug(s_f.col_name)
-            LOG.debug("最早日期数据字段个数为: {0}".format(len(before_column_info)))
-            for b_f in before_column_info:
-                LOG.debug(b_f.COL_NAME)
-            LOG.debug("最晚日期数据字段个数为：{0}".format(len(after_column_info)))
-            for a_f in after_column_info:
-                LOG.debug(a_f.COL_NAME)
+    def register_meta_data(self, schema_id, source_field_info, table_name,
+                           bucket_num, source_table_comment, data_date):
 
-            # 获取table_comment
-            before_table_comment = before_table_infos[0].DESCRIPTION if \
-                len(before_table_infos) != 0 else ""
-            after_table_comment = after_table_infos[0].DESCRIPTION if \
-                len(after_table_infos) != 0 else ""
-            # 调用比较方法
-            is_same_as_before = (not self.get_change_result(source_field_info,
-                                                            before_column_info,
-                                                            common_dict)) and (
-                                    not self.get_table_comment_change_result(
-                                        source_table_comment,
-                                        before_table_comment,
-                                        common_dict
-                                    ))
-            is_same_as_after = (not self.get_change_result(source_field_info,
-                                                           after_column_info,
-                                                           common_dict)) and (
-                                   not self.get_table_comment_change_result(
-                                       source_table_comment,
-                                       after_table_comment,
-                                       common_dict))
+        # 当日未登记元数据 直接增加新 的元数据
+        LOG.debug("---- 不存在元数据,登记新的元数据  ------ ")
+        table_id = get_uuid()
+        # 登记表元数据
+        new_meta_table_info = DidpMetaTableInfo(
+            TABLE_ID=table_id,
+            SCHEMA_ID=schema_id,
+            LAST_UPDATE_TIME=last_update_time,
+            LAST_UPDATE_USER=LAST_UPDATE_USER,
+            TABLE_NAME=table_name,
+            BUCKET_NUM=bucket_num,
+            DESCRIPTION=source_table_comment,
+            RELEASE_DATE=data_date,
+            TABLE_STATUS="2"
+        )
 
-            LOG.debug("is same as before : %s " % is_same_as_before)
-            LOG.debug("is same as after : %s " % is_same_as_after)
+        table_his_id = get_uuid()  # 表历史id
 
-            # 之前的表元数据信息
-            before_table_info = before_table_infos[0] if len(
-                before_table_infos) != 0 else None
-            # 之后的表元数据信息
-            after_table_info = after_table_infos[0] if len(
-                after_table_infos) != 0 else None
+        new_meta_table_info_his = DidpMetaTableInfoHis(
+            TABLE_HIS_ID=table_his_id,
+            TABLE_ID=table_id,
+            SCHEMA_ID=schema_id,
+            LAST_UPDATE_TIME=last_update_time,
+            LAST_UPDATE_USER=LAST_UPDATE_USER,
+            TABLE_NAME=table_name,
+            BUCKET_NUM=bucket_num,
+            DESCRIPTION=source_table_comment,
+            RELEASE_DATE=data_date,
+            TABLE_STATUS="2"
+        )
+        # 写入表元数据表
+        LOG.info("表元数据登记")
+        self.meta_table_info_dao.add_meta_table_info(
+            new_meta_table_info)
+        LOG.info("表元数据登记成功！")
+        # 写入表元数据历史表
+        LOG.info("表历史元数据登记")
+        self.meta_table_info_his_dao.add_meta_table_info_his(
+            new_meta_table_info_his)
+        LOG.info("表历史元数据登记成功 ！ ")
+        # 登记字段元数据
+        LOG.info("登记字段元数据 ")
+        for filed in source_field_info:
+            column_id = get_uuid()
+            meta_field_info = DidpMetaColumnInfo(
+                COLUMN_ID=column_id,
+                TABLE_ID=table_id,
+                LAST_UPDATE_TIME=last_update_time,
+                LAST_UPDATE_USER=LAST_UPDATE_USER,
+                COL_SEQ=filed.col_seq,
+                COL_NAME=filed.col_name,
+                DESCRIPTION=filed.comment,
+                COL_TYPE=filed.data_type,
+                COL_LENGTH=filed.col_length,
+                COL_SCALE=filed.col_scale,
+                COL_DEFAULT=filed.default_value,
+                NULL_FLAG=filed.not_null)
 
-            if is_same_as_before and (not is_same_as_after):
-                # 这次变化和上一次的相同，和后一次不同
-                LOG.debug("元数据信息无变化 ！ ")
+            self.meta_column_info_dao.add_meta_column(meta_field_info)
 
-                if source_table_comment != "" and not before_table_comment.__eq__(
-                        source_table_comment):
-                    # 更新Table_comment
-                    self.meta_table_info_dao.update_meta_table_info(
-                        schema_id, table_name,
-                        {"DESCRIPTION": source_table_comment
-                         })
-                    self.meta_table_info_his_dao.update_meta_table_info_his(
-                        before_table_info.TABLE_HIS_ID,
-                        {"DESCRIPTION": source_table_comment}
-                    )
-                # 更新字段备注
-                self.update_field_comment(source_field_info,
-                                          before_column_info,
-                                          field_comment_change_ddl
-                                          )
+            meta_field_info_his = DidpMetaColumnInfoHis(
+                TABLE_HIS_ID=table_his_id,
+                COLUMN_ID=column_id,
+                TABLE_ID=table_id,
+                LAST_UPDATE_TIME=last_update_time,
+                LAST_UPDATE_USER=LAST_UPDATE_USER,
+                COL_SEQ=filed.col_seq,
+                COL_NAME=filed.col_name,
+                DESCRIPTION=filed.comment,
+                COL_TYPE=filed.data_type,
+                COL_LENGTH=filed.col_length,
+                COL_SCALE=filed.col_scale,
+                COL_DEFAULT=filed.default_value,
+                NULL_FLAG=filed.not_null
+            )
 
-            elif not is_same_as_before and not is_same_as_after:
-                # 和前后都不同
-                LOG.debug("这次变化和前后都不同 ! ")
-                # 登记数元数据
-                table_id = \
-                    self.meta_table_info_dao.get_meta_table_info(schema_id,
-                                                                 table_name)[
-                        0].TABLE_ID
-                self.meta_table_info_dao.delete_meta_table_info(schema_id,
-                                                                table_name)
-                new_meta_table_info = DidpMetaTableInfo(
-                    TABLE_ID=table_id,
-                    SCHEMA_ID=schema_id,
-                    LAST_UPDATE_TIME=last_update_time,
-                    LAST_UPDATE_USER=LAST_UPDATE_USER,
-                    TABLE_NAME=table_name,
-                    BUCKET_NUM=bucket_num,
-                    DESCRIPTION=source_table_comment,
-                    RELEASE_DATE=data_date)
-                LOG.debug("登记表元数据 ")
-                self.meta_table_info_dao.add_meta_table_info(
-                    new_meta_table_info)
-                table_his_id = get_uuid()
-                new_meta_table_info_his = DidpMetaTableInfoHis(
-                    TABLE_HIS_ID=table_his_id,
-                    TABLE_ID=table_id,
-                    SCHEMA_ID=schema_id,
-                    LAST_UPDATE_TIME=last_update_time,
-                    LAST_UPDATE_USER=LAST_UPDATE_USER,
-                    TABLE_NAME=table_name,
-                    BUCKET_NUM=bucket_num,
-                    DESCRIPTION=source_table_comment,
-                    RELEASE_DATE=data_date)
-                self.meta_table_info_his_dao.add_meta_table_info_his(
-                    new_meta_table_info_his)
-                # 登记元数据字段
-                LOG.debug("登记字段元数据")
-                # 先删除存在的字段元数据
-                self.meta_column_info_dao.delete_all_column(table_id)
-                for filed in source_field_info:
-                    column_id = get_uuid()
-                    meta_field_info = DidpMetaColumnInfo(
-                        COLUMN_ID=column_id,
-                        TABLE_ID=table_id,
-                        LAST_UPDATE_TIME=last_update_time,
-                        LAST_UPDATE_USER=LAST_UPDATE_USER,
-                        COL_SEQ=filed.col_seq,
-                        COL_NAME=filed.col_name,
-                        DESCRIPTION=filed.comment,
-                        COL_TYPE=filed.data_type,
-                        COL_LENGTH=filed.col_length,
-                        COL_SCALE=filed.col_scale,
-                        COL_DEFAULT=filed.default_value,
-                        NULL_FLAG=filed.not_null)
-
-                    self.meta_column_info_dao.add_meta_column(meta_field_info)
-
-                    meta_field_info_his = DidpMetaColumnInfoHis(
-                        TABLE_HIS_ID=table_his_id,
-                        COLUMN_ID=column_id,
-                        TABLE_ID=table_id,
-                        LAST_UPDATE_TIME=last_update_time,
-                        LAST_UPDATE_USER=LAST_UPDATE_USER,
-                        COL_SEQ=filed.col_seq,
-                        COL_NAME=filed.col_name,
-                        DESCRIPTION=filed.comment,
-                        COL_TYPE=filed.data_type,
-                        COL_LENGTH=filed.col_length,
-                        COL_SCALE=filed.col_scale,
-                        COL_DEFAULT=filed.default_value,
-                        NULL_FLAG=filed.not_null
-                    )
-                    self.meta_column_info_his_dao.add_meta_column_his(
-                        meta_field_info_his)
-
-            elif not is_same_as_before and is_same_as_after:
-                LOG.debug("与前一次不同, 与后一次相同")
-                LOG.debug("更新后一次数据的RELEASE_DATE ")
-                self.meta_table_info_his_dao.update_meta_table_info_his(
-                    after_table_info.TABLE_HIS_ID,
-                    {"RELEASE_DATE": data_date})
-                self.meta_table_info_dao.update_meta_table_info(
-                    after_table_info.SCHEMA_ID,
-                    after_table_info.TABLE_NAME,
-                    {"RELEASE_DATE": data_date}
-                )
-                self.update_field_comment(source_field_info, after_column_info,
-                                          field_comment_change_ddl)
+            self.meta_column_info_his_dao.add_meta_column_his(
+                meta_field_info_his)
+        LOG.info("登记字段元数据成功 ！  ")
 
     def get_meta_table(self, schema_id, table_name):
         return self.meta_table_info_dao.get_meta_table_info(schema_id,
@@ -574,6 +402,8 @@ class MetaDataService(object):
                 return True
             else:
                 return False
+        else:
+            return False
 
     def update_field_comment(self, entity_list, bean_list, comment_change):
         """
@@ -612,6 +442,81 @@ class MetaDataService(object):
                             bean.COL_NAME, {"DESCRIPTION": entity.comment}
                         )
 
+    def update_meta_info(self, table_id, schema_id, table_name, bucket_num,
+                         source_table_comment,
+                         data_date, source_field_info):
+
+        self.meta_table_info_dao.delete_meta_table_info(table_id)
+        new_meta_table_info = DidpMetaTableInfo(
+            TABLE_ID=table_id,
+            SCHEMA_ID=schema_id,
+            LAST_UPDATE_TIME=last_update_time,
+            LAST_UPDATE_USER=LAST_UPDATE_USER,
+            TABLE_NAME=table_name,
+            BUCKET_NUM=bucket_num,
+            DESCRIPTION=source_table_comment,
+            RELEASE_DATE=data_date,
+            TABLE_STATUS="2"
+        )
+        LOG.debug("登记表元数据 ")
+        self.meta_table_info_dao.add_meta_table_info(
+            new_meta_table_info)
+        table_his_id = get_uuid()
+
+        new_meta_table_info_his = DidpMetaTableInfoHis(
+            TABLE_HIS_ID=table_his_id,
+            TABLE_ID=table_id,
+            SCHEMA_ID=schema_id,
+            LAST_UPDATE_TIME=last_update_time,
+            LAST_UPDATE_USER=LAST_UPDATE_USER,
+            TABLE_NAME=table_name,
+            BUCKET_NUM=bucket_num,
+            DESCRIPTION=source_table_comment,
+            RELEASE_DATE=data_date,
+            TABLE_STATUS="2"  # 发布状态
+        )
+        self.meta_table_info_his_dao.add_meta_table_info_his(
+            new_meta_table_info_his)
+        # 登记元数据字段
+        LOG.debug("登记字段元数据")
+        # 先删除存在的字段元数据
+        self.meta_column_info_dao.delete_all_column(table_id)
+        for filed in source_field_info:
+            column_id = get_uuid()
+            meta_field_info = DidpMetaColumnInfo(
+                COLUMN_ID=column_id,
+                TABLE_ID=table_id,
+                LAST_UPDATE_TIME=last_update_time,
+                LAST_UPDATE_USER=LAST_UPDATE_USER,
+                COL_SEQ=filed.col_seq,
+                COL_NAME=filed.col_name,
+                DESCRIPTION=filed.comment,
+                COL_TYPE=filed.data_type,
+                COL_LENGTH=filed.col_length,
+                COL_SCALE=filed.col_scale,
+                COL_DEFAULT=filed.default_value,
+                NULL_FLAG=filed.not_null)
+
+            self.meta_column_info_dao.add_meta_column(meta_field_info)
+
+            meta_field_info_his = DidpMetaColumnInfoHis(
+                TABLE_HIS_ID=table_his_id,
+                COLUMN_ID=column_id,
+                TABLE_ID=table_id,
+                LAST_UPDATE_TIME=last_update_time,
+                LAST_UPDATE_USER=LAST_UPDATE_USER,
+                COL_SEQ=filed.col_seq,
+                COL_NAME=filed.col_name,
+                DESCRIPTION=filed.comment,
+                COL_TYPE=filed.data_type,
+                COL_LENGTH=filed.col_length,
+                COL_SCALE=filed.col_scale,
+                COL_DEFAULT=filed.default_value,
+                NULL_FLAG=filed.not_null
+            )
+            self.meta_column_info_his_dao.add_meta_column_his(
+                meta_field_info_his)
+
 
 class MonRunLogService(object):
     mon_run_log_dao = MonRunLogDao()
@@ -625,9 +530,11 @@ class MonRunLogService(object):
         self.mon_run_log_dao.add_mon_run_log(didp_mon_run_log)
 
     def find_run_logs(self, table_name, obj, org, start_date, end_date):
-        return self.mon_run_log_dao.get_mon_run_log_list(table_name, obj, "5",
+        return self.mon_run_log_dao.get_mon_run_log_list(table_name, obj,
+                                                         "5",
                                                          org,
-                                                         start_date, end_date)
+                                                         start_date,
+                                                         end_date)
 
     def find_latest_all_archive(self, system, obj, org, biz_date):
         """

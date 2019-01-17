@@ -371,16 +371,13 @@ class ArchiveData(object):
         # 先格式化dataDate
 
         self.meta_data_service.upload_meta_data(self.__args.schemaID,
-                                                self.__args.sourceDbName,
-                                                self.__args.sourceTableName,
                                                 self.__args.dbName,
+                                                self.source_ddl,
                                                 self.__args.tableName,
                                                 self.release_date,
                                                 self.__args.bucketsNum,
                                                 self.common_dict,
-                                                table_comment,
-                                                self.filter_cols
-                                                )
+                                                table_comment)
 
     @abc.abstractmethod
     def create_table(self):
@@ -770,8 +767,6 @@ class ArchiveData(object):
         :return:
         """
         sql = ""
-        # self.source_ddl = self.meta_data_service.get_meta_field_info_list(
-        #     self.table_name, self.data_date)
 
         if self.field_change_list:
             # 如果字段有变化
@@ -1446,104 +1441,6 @@ class AddArchive(ArchiveData):
         :return:
         """
         super(AddArchive, self).change_table_columns()
-        # if self.all_table_name is None:
-        #     return
-        # if self.source_data_mode == SourceDataMode.ALL.value:
-        #     LOG.debug("如果有字段变化需要更新全量表的结构")
-        #     LOG.debug("查看table_add 与 table_all 表结构是否一致")
-        #     db_name, all_table_name = self.all_table_name.split(".")
-        #     if self.field_change_list:
-        #         # 有增量求全，需要避免表字段变化导致增全量表结构不一致，
-        #         # 两张表字段结构需要一起变动。
-        #
-        #         if not self.has_table_all:
-        #             self.has_table_all = self.hive_util. \
-        #                 exist_table(db_name, all_table_name)
-        #             if self.has_table_all:
-        #                 self.all_org_pos = self.hive_util. \
-        #                     get_org_pos(db_name, all_table_name)
-        #
-        #         if self.has_table_all:
-        # meta_field_infos = self.meta_data_service. \
-        #     parse_input_table(self.args.schemaID,
-        #                       self.args.sourceDbName,
-        #                       self.args.tableName,
-        #                       self.filter_cols)
-        # hive_field_infos = self.hive_util.get_hive_meta_field(
-        #     db_name,
-        #     all_table_name,
-        #     True)
-        # field_change_list2 = self.get_change_list(meta_field_infos,
-        #                                           hive_field_infos
-        #                                           )
-        # field_type_modify_list2 = self. \
-        #     check_column_modify(field_change_list2)
-
-        # 判断是否有字段变化
-        # change = False
-        # for field in field_change_list2:
-        #     if not StringUtil. \
-        #             eq_ignore(field.full_seq, field.current_seq) or \
-        #                     field.hive_no < 0:
-        #         # 存在字段变化
-        #         change = True
-        # if not change:
-        #     field_change_list2 = None
-
-        # 若发生了字段变化
-        # tmp_buffer = ""
-        # sql = ""
-        # if field_change_list2:
-        #     for field in field_change_list2:
-        #         if int(field.hive_no) == -2:
-        #             #  Hive需要新增字段
-        #             tmp_buffer = " `{col_name}` {col_type} ,". \
-        #                 format(col_name=field.col_name,
-        #                        col_type=field.ddl_type.get_whole_type)
-        #
-        #     if len(tmp_buffer) > 0:
-        #         sql = "ALTER TABLE {TABLE_ALL} " \
-        #               "ADD COLUMNS ({COLS})". \
-        #             format(TABLE_ALL=self.all_table_name,
-        #                    COLS=tmp_buffer[:-1])
-        #     LOG.info("执行SQL:{0}".format(sql))
-        #     self.hive_util.execute(sql)
-        #
-        # # 发生了字段类型改变
-        # if field_type_modify_list2:
-        #     for field in field_type_modify_list2:
-        #         sql = "ALTER TABLE {TABLE_ALL} CHANGE COLUMN " \
-        #               " `{COL_NAME}` `{COL_NAME}` {COL_TYPE} ". \
-        #             format(TABLE_ALL=self.all_table_name,
-        #                    COL_NAME=field.col_name,
-        #                    COL_TYPE=field.ddl_type.get_whole_type)
-        #         if not StringUtil.is_blank(field.comment_ddl):
-        #             sql = sql + " comment '{comment}' ". \
-        #                 format(comment=field.comment_ddl)
-        #         LOG.info("执行SQL {0}".format(sql))
-        #         self.hive_util.execute(sql)
-        #
-        # # 更新全量表的元数据
-        # if field_change_list2 or field_type_modify_list2:
-        #
-        #     # 先获取之前的全量历史表元数据信息
-        #     all_table_meta_info = self.meta_data_service. \
-        #         get_meta_table(self.args.schemaID, all_table_name)
-        #     if all_table_meta_info:
-        #         all_table_meta_info = all_table_meta_info[0]
-        #     LOG.debug("更新全量历史表的元数据信息")
-        #     self.meta_data_service. \
-        #         upload_meta_data(self.args.schemaID,
-        #                          self.args.sourceDbName,
-        #                          self.args.sourceTableName,
-        #                          db_name,
-        #                          all_table_name,
-        #                          self.data_date,
-        #                          all_table_meta_info.BUCKET_NUM,
-        #                          self.common_dict,
-        #                          all_table_meta_info.DESCRIPTION,
-        #                          self.filter_cols
-        #                          )
 
     def load_data(self):
         LOG.debug("先根据数据日期删除表中数据")
@@ -1602,7 +1499,7 @@ class AddArchive(ArchiveData):
         """
         LOG.debug("------------执行全求增转换入库----------")
         meta_info = self.meta_data_service.get_meta_field_info_list(
-            self.table_name, self.release_date)
+            self.args.schemaID, self.table_name)
         all_table_fields_infos = None
 
         if self.all_table_name:
@@ -1610,9 +1507,7 @@ class AddArchive(ArchiveData):
                 self.db_name_all,
                 self.table_name_all,
                 True)  # 全量表字段
-        hive_field_infos = self.hive_util.get_hive_meta_field(self.db_name,
-                                                              self.table_name,
-                                                              True)  # 当前表结构(Hive)
+        hive_field_infos = meta_info
         pk_list = self.args.pkList
         if pk_list:
             pk_list = pk_list.split("|")
@@ -2005,16 +1900,14 @@ class AllArchive(ArchiveData):
         :return:
         """
         meta_info = self.meta_data_service.get_meta_field_info_list(
-            self.table_name, self.release_date)
+            self.args.schemaID, self.table_name)
         add_table_field_infos = None
         if self.table_add:
             add_table_field_infos = self.hive_util.get_hive_meta_field(
                 self.db_name_add,
                 self.table_name_add,
                 True)  # 增量表字段信息
-        hive_field_infos = self.hive_util.get_hive_meta_field(self.db_name,
-                                                              self.table_name,
-                                                              True)
+        hive_field_infos = meta_info
         pk_list = self.args.pkList
         if pk_list:
             pk_list = pk_list.split("|")
