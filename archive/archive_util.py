@@ -9,6 +9,7 @@
 import calendar
 import os
 import sys
+
 reload(sys)
 sys.setdefaultencoding('utf8')
 sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
@@ -22,7 +23,6 @@ from archive.model import DidpCommonParams
 from utils.didp_db_operator import DbOperator
 from utils.didp_logger import Logger
 from utils.didp_tools import get_db_login_info
-
 
 LOG = Logger()
 
@@ -58,6 +58,11 @@ class DateUtil(object):
     def get_now_date():
         dt = datetime.datetime.now()
         return dt.strftime("%Y%m%d %H:%M:%S")
+
+    @staticmethod
+    def get_now_date_format(format):
+        dt = datetime.datetime.now()
+        return dt.strftime(format)
 
     @staticmethod
     def get_now_date_standy():
@@ -157,15 +162,15 @@ class StringUtil(object):
         :param in_str: 输入的字符串
         :return: true or false
         """
-        if in_str is None :
+        if in_str is None:
             return True
-        elif in_str.strip().__len__()==0 :
+        elif in_str.strip().__len__() == 0:
             return True
         else:
             return False
 
     @staticmethod
-    def eq_ignore(obj1, obj2 ):
+    def eq_ignore(obj1, obj2):
         """
             忽视大小写的比较
         :param obj1:
@@ -189,8 +194,8 @@ class HiveUtil(object):
         self.login_info = get_db_login_info(schema_id)[1]
         # self.db_oper=None
         self.db_oper = DbOperator(self.login_info["db_user"],
-                             self.login_info["db_pwd"], self.hive_class,
-                             self.login_info["jdbc_url"], self.driver_path)
+                                  self.login_info["db_pwd"], self.hive_class,
+                                  self.login_info["jdbc_url"], self.driver_path)
 
     def exist_table(self, db_name, table_name):
         """
@@ -203,7 +208,6 @@ class HiveUtil(object):
 
         self.db_oper.connect()
         self.db_oper.do(sql1)
-
         result = self.db_oper.fetchall(sql)
         self.db_oper.close()
 
@@ -233,7 +237,7 @@ class HiveUtil(object):
                 break
         return flag
 
-    def get_org_pos(self,db_name, table_name):
+    def get_org_pos(self, db_name, table_name):
         """
             获取机构分区字段
         :param db_name:
@@ -265,7 +269,7 @@ class HiveUtil(object):
 
         return key
 
-    def get_table_descformatted(self,db_name, table_name):
+    def get_table_descformatted(self, db_name, table_name):
         sql1 = "use {database}".format(database=db_name)
         sql = "desc formatted {table}".format(table=table_name)
         self.db_oper.connect()
@@ -274,7 +278,7 @@ class HiveUtil(object):
         self.db_oper.close()
         return result
 
-    def get_table_desc(self,db_name, table_name):
+    def get_table_desc(self, db_name, table_name):
         sql1 = "use {database}".format(database=db_name)
         sql = "desc {table}".format(table=table_name)
         self.db_oper.connect()
@@ -283,10 +287,16 @@ class HiveUtil(object):
         self.db_oper.close()
         return result
 
-    def execute(self,sql):
+    def execute_with_dynamic(self, sql):
+        sql1 = "set hive.exec.dynamic.partition=true"
+        self.db_oper.connect()
+        self.db_oper.do(sql1)
+        self.db_oper.do(sql)
+
+    def execute(self, sql):
         self.db_oper.execute(sql)
 
-    def execute_sql(self,sql):
+    def execute_sql(self, sql):
         """
         有返回结果
         :param self:
@@ -340,9 +350,9 @@ class HiveUtil(object):
 
         return hive_meta_info_list
 
-    def get_table_comment(self,db_name, table_name):
+    def get_table_comment(self, db_name, table_name):
         desc_formmatted = self.get_table_descformatted(db_name,
-                                                           table_name)
+                                                       table_name)
         result = ""
         for attr in desc_formmatted:
             if attr[0].strip().upper().__eq__("COMMENT"):
@@ -385,7 +395,8 @@ class HiveUtil(object):
                 return False
         return True
 
+
 if __name__ == '__main__':
     hive_util = HiveUtil("d5852c01c3fd44c6b8ad0bcab9ea0de5")
-    x = hive_util.get_org_pos("orc_test","test_archive_all")
+    x = hive_util.get_org_pos("orc_test", "test_archive_all")
     print x
