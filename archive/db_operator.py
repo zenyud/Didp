@@ -45,6 +45,7 @@ def get_session():
 
     return session
 
+
 SESSION = get_session()
 
 
@@ -91,9 +92,27 @@ class MetaColumnInfoDao(object):
         SESSION.close()
 
     @staticmethod
+    def delete_column(table_id, col_name):
+        SESSION.query(DidpMetaColumnInfo).filter(
+            DidpMetaColumnInfo.TABLE_ID == table_id,
+            DidpMetaColumnInfo.COL_NAME == col_name,
+        ).delete()
+        SESSION.commit()
+        SESSION.close()
+
+    @staticmethod
     def get_meta_data_by_table(table_id):
         result = SESSION.query(DidpMetaColumnInfo).filter(
             DidpMetaColumnInfo.TABLE_ID == table_id).all()
+        SESSION.close()
+        return result
+
+    @staticmethod
+    def get_column(table_id,col_name ):
+        result = SESSION.query(DidpMetaColumnInfo).filter(
+            DidpMetaColumnInfo.TABLE_ID == table_id,
+            DidpMetaColumnInfo.COL_NAME == col_name,
+        ).all()
         SESSION.close()
         return result
 
@@ -181,7 +200,7 @@ class MetaTableInfoDao(object):
         SESSION.commit()
 
     @staticmethod
-    def get_meta_table_info( schema_id, table_name):
+    def get_meta_table_info(schema_id, table_name):
         """
             获取Meta_table_info
         :param schema_id: SCHEMA_ID
@@ -218,7 +237,7 @@ class MetaTableInfoDao(object):
         """
 
         SESSION.query(DidpMetaTableInfo).filter(
-            DidpMetaTableInfo.TABLE_ID == table_id,).delete()
+            DidpMetaTableInfo.TABLE_ID == table_id, ).delete()
         SESSION.commit()
         SESSION.close()
 
@@ -357,7 +376,7 @@ class MetaTableInfoHisDao(object):
 
     @staticmethod
     def get_meta_table_info_by_detail(schema_id, table_name, data_date,
-                                       comment,
+                                      comment,
                                       table_comment_change_ddl):
         """
             根据详细的字段信息来获取表的元数据
@@ -451,7 +470,7 @@ class MonRunLogDao(object):
         :return:
         """
         result = SESSION.query(DidpMonRunLog).filter(
-            DidpMonRunLog.SYSTEM_KEY == system ,
+            DidpMonRunLog.SYSTEM_KEY == system,
             DidpMonRunLog.DATA_OBJECT_NAME == obj,
             DidpMonRunLog.BRANCH_NO == org,
             DidpMonRunLog.PROCESS_STATUS == '1',
@@ -525,6 +544,10 @@ class MetaLockDao(object):
                    DidpHdsStructMetaCtrl.ORG_CODE == org,
                    ).all()
         return result
+
+
 if __name__ == '__main__':
-    a = MetaTableInfoHisDao.get_meta_table_info_by_detail("d5852c01c3fd44c6b8ad0bcab9ea0de5","test_archive_chain","2019-01-01 00:00:00","","true" )
+    a = MetaTableInfoHisDao.get_meta_table_info_by_detail(
+        "d5852c01c3fd44c6b8ad0bcab9ea0de5", "test_archive_chain",
+        "2019-01-01 00:00:00", "", "true")
     print a

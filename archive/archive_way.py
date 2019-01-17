@@ -1529,10 +1529,13 @@ class AddArchive(ArchiveData):
         lastest_all_archive = self.mon_run_log_service. \
             find_latest_all_archive(self.system, self.args.obj,
                                     self.args.org, yes_day)
+
+        LOG.debug("是否存在全量记录 {0}".format(lastest_all_archive))
         has_yes_all_data = False  # 判断最近一次全量归档是否在昨日
 
         if lastest_all_archive:
             biz_date = lastest_all_archive.BIZ_DATE
+            LOG.debug("最近全量的日期是：{0}".format(biz_date))
             if StringUtil.eq_ignore(yes_day, biz_date):
                 has_yes_all_data = True
 
@@ -1593,9 +1596,9 @@ class AddArchive(ArchiveData):
             sql = sql + "SELECT {col_date},". \
                 format(col_date=self.col_date,
                        )
-            if self.org_pos == OrgPos.COLUMN.value:
+            if self.all_org_pos == OrgPos.COLUMN.value:
                 sql = sql + "{col_org}, ".format(col_org=self.col_org)
-
+            LOG.debug("全量表的 机构字段位置是： {0}".format(self.all_org_pos))
             sql = sql + " {cols}  FROM {ALL_TABLE_NAME} WHERE {WHERE_SQL} ". \
                 format(
                 cols=self.build_load_column_with_compare(all_table_fields_infos,
@@ -1635,7 +1638,7 @@ class AddArchive(ArchiveData):
 
             # 最近一次全量
             if lastest_all_archive and self.has_table_all:
-                db_name, all_table_name = self.all_table_name.split(".")
+
                 build_cols = self.build_load_column_with_compare(
                     all_table_fields_infos,
                     hive_field_infos,
@@ -1643,7 +1646,7 @@ class AddArchive(ArchiveData):
                     False
                 )
                 sql = sql + "SELECT {COL_DATE},".format(COL_DATE=self.col_date)
-                if self.org_pos == OrgPos.COLUMN.value:
+                if self.all_org_pos == OrgPos.COLUMN.value:
                     sql = sql + " {col_org},".format(col_org=self.col_org)
                 sql = sql + "{COLS} FROM {all_table_name} " \
                             "WHERE {WHERE_SQL} UNION ALL  ". \
@@ -1656,7 +1659,7 @@ class AddArchive(ArchiveData):
                                                                self.all_table_partition_range,
                                                                yes_day),
                                                            self.all_org_pos,
-                                                           self.args.org, None
+                                                           self.org, None
                                                            )
                            )
                 LOG.debug("------ 构建的语句是 :{0}".format(build_cols))
@@ -1930,11 +1933,12 @@ class AllArchive(ArchiveData):
             find_latest_all_archive(self.system, self.args.obj,
                                     self.org, yes_day)
 
-        LOG.debug("最近一次全量归档的日期是：{0}".format(lastest_all_archive.BIZ_DATE))
+
         # 判断最近一次归档是否在昨日
         has_yes_full_data = False
         if lastest_all_archive:
             biz_date = lastest_all_archive.BIZ_DATE
+            LOG.debug("最近一次全量归档的日期是：{0}".format(biz_date))
             if StringUtil.eq_ignore(yes_day, biz_date):
                 has_yes_full_data = True
 
@@ -2034,7 +2038,7 @@ class AllArchive(ArchiveData):
 
             hql = hql + " UNION ALL " \
                         "SELECT {COL_DATE},".format(COL_DATE=self.col_date)
-            if self.org_pos == OrgPos.COLUMN.value:
+            if self.org_pos_add == OrgPos.COLUMN.value:
                 hql = hql + " '{0}',".format(self.col_org)
             hql = hql + "{COLS} FROM {TABLE_ADD} " \
                         " WHERE {COL_DATE} < '{DATA_DATE}' ". \

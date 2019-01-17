@@ -8,7 +8,7 @@
 from archive.archive_enum import CommentChange
 from archive.archive_util import *
 from archive.db_operator import *
-from archive.hive_field_info import HiveFieldInfo
+from archive.hive_field_info import HiveFieldInfo, MetaTypeInfo
 from utils.didp_logger import Logger
 
 reload(sys)
@@ -97,6 +97,9 @@ class MetaDataService(object):
     meta_column_info_his_dao = MetaColumnInfoHisDao()
     meta_table_info_dao = MetaTableInfoDao()
     meta_column_info_dao = MetaColumnInfoDao()
+    just_delete_col = False
+    type_change = False
+    field_comment_change = False
 
     def get_meta_field_info_list(self, schema_id, table_name):
         # type: (str, str) -> list(HiveFieldInfo)
@@ -199,7 +202,7 @@ class MetaDataService(object):
         :return: void
         """
         # 检查当日是否已经登记元数据
-        discription = None  # 对元数据变更的描述
+
         LOG.info("------------元数据登记检查------------")
         # 接入数据字段信息
         LOG.info("接入表信息解析")
@@ -235,7 +238,7 @@ class MetaDataService(object):
                 self.update_meta_info(table_id, schema_id, table_name,
                                       bucket_num,
                                       source_table_comment, data_date,
-                                      source_field_info)
+                                      source_field_info, meta_field_info)
         # 直接登记元数据
         else:
             self.register_meta_data(schema_id, source_field_info, table_name,
@@ -328,8 +331,7 @@ class MetaDataService(object):
         return self.meta_table_info_dao.get_meta_table_info(schema_id,
                                                             table_name)
 
-    @staticmethod
-    def get_change_result(source_field_info, meta_field_info,
+    def get_change_result(self, source_field_info, meta_field_info,
                           common_dict):
         """
             比较接入字段与元数据是否一致
@@ -339,7 +341,8 @@ class MetaDataService(object):
         :return: True 有不一致字段
                 False 无不一致字段
         """
-
+        get_new_col = False
+        len_lower = False  # 字段数是否变少
         if len(source_field_info) != len(meta_field_info):
             LOG.debug("-----字段数发生变化------")
             return True
@@ -368,6 +371,7 @@ class MetaDataService(object):
                                     meta_field_info[j].COL_SEQ,
                                     source_field.col_seq):
                             LOG.debug("-----字段的精度发生了变化-------")
+                            self.type_change = True
                             return True
 
                     # 判断字段备注改变是否增加新版本
@@ -380,6 +384,7 @@ class MetaDataService(object):
                             meta_field_info[j].DESCRIPTION else ""
                         if not comment1.__eq__(comment2):
                             return True
+
         return False
 
     @staticmethod
@@ -444,78 +449,148 @@ class MetaDataService(object):
 
     def update_meta_info(self, table_id, schema_id, table_name, bucket_num,
                          source_table_comment,
-                         data_date, source_field_info):
-
-        self.meta_table_info_dao.delete_meta_table_info(table_id)
-        new_meta_table_info = DidpMetaTableInfo(
-            TABLE_ID=table_id,
-            SCHEMA_ID=schema_id,
-            LAST_UPDATE_TIME=last_update_time,
-            LAST_UPDATE_USER=LAST_UPDATE_USER,
-            TABLE_NAME=table_name,
-            BUCKET_NUM=bucket_num,
-            DESCRIPTION=source_table_comment,
-            RELEASE_DATE=data_date,
-            TABLE_STATUS="2"
-        )
-        LOG.debug("登记表元数据 ")
-        self.meta_table_info_dao.add_meta_table_info(
-            new_meta_table_info)
-        table_his_id = get_uuid()
-
-        new_meta_table_info_his = DidpMetaTableInfoHis(
-            TABLE_HIS_ID=table_his_id,
-            TABLE_ID=table_id,
-            SCHEMA_ID=schema_id,
-            LAST_UPDATE_TIME=last_update_time,
-            LAST_UPDATE_USER=LAST_UPDATE_USER,
-            TABLE_NAME=table_name,
-            BUCKET_NUM=bucket_num,
-            DESCRIPTION=source_table_comment,
-            RELEASE_DATE=data_date,
-            TABLE_STATUS="2"  # 发布状态
-        )
-        self.meta_table_info_his_dao.add_meta_table_info_his(
-            new_meta_table_info_his)
-        # 登记元数据字段
-        LOG.debug("登记字段元数据")
-        # 先删除存在的字段元数据
-        self.meta_column_info_dao.delete_all_column(table_id)
-        for filed in source_field_info:
-            column_id = get_uuid()
-            meta_field_info = DidpMetaColumnInfo(
-                COLUMN_ID=column_id,
+                         data_date, source_field_info, meta_field_infos):
+        if not self.just_delete_col:
+            # 如果不是只是减少了字段 就直接更新
+            self.meta_table_info_dao.delete_meta_table_info(table_id)
+            new_meta_table_info = DidpMetaTableInfo(
                 TABLE_ID=table_id,
+                SCHEMA_ID=schema_id,
                 LAST_UPDATE_TIME=last_update_time,
                 LAST_UPDATE_USER=LAST_UPDATE_USER,
-                COL_SEQ=filed.col_seq,
-                COL_NAME=filed.col_name,
-                DESCRIPTION=filed.comment,
-                COL_TYPE=filed.data_type,
-                COL_LENGTH=filed.col_length,
-                COL_SCALE=filed.col_scale,
-                COL_DEFAULT=filed.default_value,
-                NULL_FLAG=filed.not_null)
-
-            self.meta_column_info_dao.add_meta_column(meta_field_info)
-
-            meta_field_info_his = DidpMetaColumnInfoHis(
-                TABLE_HIS_ID=table_his_id,
-                COLUMN_ID=column_id,
-                TABLE_ID=table_id,
-                LAST_UPDATE_TIME=last_update_time,
-                LAST_UPDATE_USER=LAST_UPDATE_USER,
-                COL_SEQ=filed.col_seq,
-                COL_NAME=filed.col_name,
-                DESCRIPTION=filed.comment,
-                COL_TYPE=filed.data_type,
-                COL_LENGTH=filed.col_length,
-                COL_SCALE=filed.col_scale,
-                COL_DEFAULT=filed.default_value,
-                NULL_FLAG=filed.not_null
+                TABLE_NAME=table_name,
+                BUCKET_NUM=bucket_num,
+                DESCRIPTION=source_table_comment,
+                RELEASE_DATE=data_date,
+                TABLE_STATUS="2"
             )
-            self.meta_column_info_his_dao.add_meta_column_his(
-                meta_field_info_his)
+            LOG.debug("登记表元数据 ")
+            self.meta_table_info_dao.add_meta_table_info(
+                new_meta_table_info)
+            table_his_id = get_uuid()
+
+            new_meta_table_info_his = DidpMetaTableInfoHis(
+                TABLE_HIS_ID=table_his_id,
+                TABLE_ID=table_id,
+                SCHEMA_ID=schema_id,
+                LAST_UPDATE_TIME=last_update_time,
+                LAST_UPDATE_USER=LAST_UPDATE_USER,
+                TABLE_NAME=table_name,
+                BUCKET_NUM=bucket_num,
+                DESCRIPTION=source_table_comment,
+                RELEASE_DATE=data_date,
+                TABLE_STATUS="2"  # 发布状态
+            )
+            self.meta_table_info_his_dao.add_meta_table_info_his(
+                new_meta_table_info_his)
+            # 登记元数据字段
+            LOG.debug("登记字段元数据")
+            # 先删除存在的字段元数据
+            meta_col_names = [x.COL_NAME.upper() for x in meta_field_infos]
+            # self.meta_column_info_dao.delete_all_column(table_id)
+            for field in source_field_info:
+                if field.col_name.upper() not in meta_col_names:
+                    # 新增字段
+                    column_id = get_uuid()
+                    meta_field_info = DidpMetaColumnInfo(
+                        COLUMN_ID=column_id,
+                        TABLE_ID=table_id,
+                        LAST_UPDATE_TIME=last_update_time,
+                        LAST_UPDATE_USER=LAST_UPDATE_USER,
+                        COL_SEQ=field.col_seq,
+                        COL_NAME=field.col_name,
+                        DESCRIPTION=field.comment,
+                        COL_TYPE=field.data_type,
+                        COL_LENGTH=field.col_length,
+                        COL_SCALE=field.col_scale,
+                        COL_DEFAULT=field.default_value,
+                        NULL_FLAG=field.not_null)
+                    self.meta_column_info_dao.add_meta_column(meta_field_info)
+
+                    meta_field_info_his = DidpMetaColumnInfoHis(
+                        TABLE_HIS_ID=table_his_id,
+                        COLUMN_ID=column_id,
+                        TABLE_ID=table_id,
+                        LAST_UPDATE_TIME=last_update_time,
+                        LAST_UPDATE_USER=LAST_UPDATE_USER,
+                        COL_SEQ=field.col_seq,
+                        COL_NAME=field.col_name,
+                        DESCRIPTION=field.comment,
+                        COL_TYPE=field.data_type,
+                        COL_LENGTH=field.col_length,
+                        COL_SCALE=field.col_scale,
+                        COL_DEFAULT=field.default_value,
+                        NULL_FLAG=field.not_null
+                    )
+                    self.meta_column_info_his_dao.add_meta_column_his(
+                        meta_field_info_his)
+                else:
+                    # 更新
+                    column_id = self.meta_column_info_dao.\
+                    get_column(table_id,
+                               field.col_name)[0].COLUMN_ID
+                    self.meta_column_info_dao. \
+                        update_meta_column(table_id,
+                                           field.col_name,
+                                           {
+                                               "LAST_UPDATE_TIME": last_update_time,
+                                               "LAST_UPDATE_USER": LAST_UPDATE_USER,
+                                               "DESCRIPTION": field.comment,
+                                               "COL_TYPE": field.data_type,
+                                               "COL_LENGTH": field.col_length,
+                                               "COL_SCALE": field.col_scale,
+                                               "COL_DEFAULT": field.default_value,
+                                               "NULL_FLAG": field.not_null}
+                                           )
+
+                    meta_field_info_his = DidpMetaColumnInfoHis(
+                        TABLE_HIS_ID=table_his_id,
+                        COLUMN_ID=column_id,
+                        TABLE_ID=table_id,
+                        LAST_UPDATE_TIME=last_update_time,
+                        LAST_UPDATE_USER=LAST_UPDATE_USER,
+                        COL_SEQ=field.col_seq,
+                        COL_NAME=field.col_name,
+                        DESCRIPTION=field.comment,
+                        COL_TYPE=field.data_type,
+                        COL_LENGTH=field.col_length,
+                        COL_SCALE=field.col_scale,
+                        COL_DEFAULT=field.default_value,
+                        NULL_FLAG=field.not_null
+                    )
+                    self.meta_column_info_his_dao.add_meta_column_his(
+                        meta_field_info_his)
+
+        if self.just_delete_col:
+            # 表元数据不用更新
+            if not self.type_change:
+                # 无需更新
+                LOG.debug("无新增字段或字段精度变化 ")
+            else:
+                meta_col_names = [x.COL_NAME for x in meta_field_info]
+                for field in source_field_info:
+                    ddl_type = MetaTypeInfo(field.data_type, field.col_length,
+                                            field.col_scale)
+                    index = meta_field_info.index(field.col_name)
+                    meta_field = meta_field_info[index]
+                    meta_type = MetaTypeInfo(meta_field.COL_TYPE,
+                                             meta_field.COL_LENGTH,
+                                             meta_field.COL_SCALE)
+                    if not ddl_type.__eq__(meta_type):
+                        # 对字段类型进行更新
+                        LOG.debug("字段精度更新")
+                        LOG.debug("{0} >> {1}".format(meta_type.get_whole_type,
+                                                      ddl_type.get_whole_type
+                                                      ))
+                        self.meta_column_info_dao. \
+                            update_meta_column(table_id,
+                                               meta_field.COL_NAME,
+                                               {
+                                                   "COL_TYPE": ddl_type.field_type,
+                                                   "COL_LENGTH": ddl_type.field_length,
+                                                   "COL_SCALE": ddl_type.filed_scale
+                                               }
+                                               )
 
 
 class MonRunLogService(object):

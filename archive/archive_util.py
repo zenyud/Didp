@@ -387,6 +387,5 @@ class HiveUtil(object):
 
 if __name__ == '__main__':
     hive_util = HiveUtil("d5852c01c3fd44c6b8ad0bcab9ea0de5")
-    x = hive_util.get_hive_meta_field("orc_test","test_archive_chain",True)
-    for a in x :
-        print a.col_name
+    x = hive_util.get_org_pos("orc_test","test_archive_all")
+    print x
