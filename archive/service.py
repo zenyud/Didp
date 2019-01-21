@@ -5,15 +5,17 @@
 # Function Desc :  操作服务
 # History       : 2019/1/9  ZENGYU     Create
 # Remarks       :
+import sys
+import os
+reload(sys)
+sys.setdefaultencoding('utf8')
+sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
 from archive.archive_enum import CommentChange
 from archive.archive_util import *
 from archive.db_operator import *
 from archive.hive_field_info import HiveFieldInfo, MetaTypeInfo
 from utils.didp_logger import Logger
 
-reload(sys)
-sys.setdefaultencoding('utf8')
-sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
 
 LOG = Logger()
 
@@ -25,8 +27,10 @@ class HdsStructControl(object):
     """
         归档控制
     """
-    archive_lock_dao = ArchiveLockDao()
-    meta_lock_dao = MetaLockDao()
+
+    def __init__(self, session):
+        self.archive_lock_dao = ArchiveLockDao(session)
+        self.meta_lock_dao = MetaLockDao(session)
 
     def find_archive(self, obj, org):
         """
@@ -36,7 +40,7 @@ class HdsStructControl(object):
         :return:
         """
         try:
-            result = HdsStructControl.archive_lock_dao.find_by_pk(obj, org)
+            result = self.archive_lock_dao.find_by_pk(obj, org)
             if len(result) == 0:
                 return None
             else:
@@ -49,17 +53,17 @@ class HdsStructControl(object):
             对归档任务进行加锁
         :return:
         """
-        HdsStructControl.archive_lock_dao.add(obj, org)
+        self.archive_lock_dao.add(obj, org)
 
-    @staticmethod
-    def archive_unlock(obj, org):
+
+    def archive_unlock(self, obj, org):
         """
             归档任务解锁
         :param obj:
         :param org:
         :return:
         """
-        HdsStructControl.archive_lock_dao.delete_by_pk(obj, org)
+        self.archive_lock_dao.delete_by_pk(obj, org)
 
     def meta_lock_find(self, obj, org):
         """
@@ -93,13 +97,17 @@ class MetaDataService(object):
     """
         元数据操作类
     """
-    meta_table_info_his_dao = MetaTableInfoHisDao()
-    meta_column_info_his_dao = MetaColumnInfoHisDao()
-    meta_table_info_dao = MetaTableInfoDao()
-    meta_column_info_dao = MetaColumnInfoDao()
+
     just_delete_col = False
     type_change = False
     field_comment_change = False
+
+    def __init__(self, session):
+        self.session = session
+        self.meta_table_info_his_dao = MetaTableInfoHisDao(self.session)
+        self.meta_column_info_his_dao = MetaColumnInfoHisDao(self.session)
+        self.meta_table_info_dao = MetaTableInfoDao(self.session)
+        self.meta_column_info_dao = MetaColumnInfoDao(self.session)
 
     def get_meta_field_info_list(self, schema_id, table_name):
         # type: (str, str) -> list(HiveFieldInfo)
@@ -147,8 +155,8 @@ class MetaDataService(object):
             return None
 
     @staticmethod
-    def parse_input_table(schema_id, db_name, table_name, filter_cols):
-        # type: (str, str, str, str) -> list(HiveFieldInfo)
+    def parse_input_table(hive_util, db_name, table_name, filter_cols):
+        # type: (HiveUtil, str, str, str) -> list(HiveFieldInfo)
         """
             解析接入表表结构
         :param schema_id:
@@ -160,8 +168,7 @@ class MetaDataService(object):
         source_field_infos = []  # 获取接入数据字段列表
 
         # 字段信息
-        cols = HiveUtil(schema_id).get_table_desc(db_name,
-                                                  table_name)
+        cols = hive_util.get_table_desc(db_name,table_name)
 
         filter_col_list = None
         if filter_cols:
@@ -526,9 +533,9 @@ class MetaDataService(object):
                         meta_field_info_his)
                 else:
                     # 更新
-                    column_id = self.meta_column_info_dao.\
-                    get_column(table_id,
-                               field.col_name)[0].COLUMN_ID
+                    column_id = self.meta_column_info_dao. \
+                        get_column(table_id,
+                                   field.col_name)[0].COLUMN_ID
                     self.meta_column_info_dao. \
                         update_meta_column(table_id,
                                            field.col_name,
@@ -594,7 +601,8 @@ class MetaDataService(object):
 
 
 class MonRunLogService(object):
-    mon_run_log_dao = MonRunLogDao()
+    def __init__(self, session):
+        self.mon_run_log_dao = MonRunLogDao(session)
 
     def create_run_log(self, didp_mon_run_log):
         """

@@ -7,20 +7,23 @@
 # Remarks       :
 import argparse
 import os
-
 import sys
-
 import time
+
 reload(sys)
 sys.setdefaultencoding('utf8')
 sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from archive.db_operator import CommonParamsDao
 
 from archive.archive_enum import AddColumn, DatePartitionRange, OrgPos, \
     PartitionKey
 from archive.archive_util import HiveUtil, BizException, DateUtil, StringUtil
 from archive.model import DidpMonRunLog
 from archive.service import MetaDataService, MonRunLogService
-
 
 from utils.didp_logger import Logger
 
@@ -34,12 +37,13 @@ class BatchArchiveInit(object):
 
     def __init__(self):
         self.__args = self.archive_init()
+        self.session = self.get_session()
         self.__print_argument()
         self.pro_start_date = DateUtil.get_now_date_standy()
         self.schema_id = self.__args.schemaID
         self.hive_util = HiveUtil(self.schema_id)
-        self.meta_data_service = MetaDataService()
-        self.mon_run_log_service = MonRunLogService()
+        self.meta_data_service = MetaDataService(self.session)
+        self.mon_run_log_service = MonRunLogService(self.session)
         self.schema_id = self.__args.schemaID
         self.source_db = self.__args.sourceDbName
         self.source_table_name = self.__args.sourceTableName
@@ -50,7 +54,7 @@ class BatchArchiveInit(object):
         self.common_dict = self.init_common_dict()
 
         self.source_ddl = self.meta_data_service. \
-            parse_input_table(self.schema_id,
+            parse_input_table(self.hive_util,
                               self.source_db,
                               self.source_table_name,
                               self.filter_cols)
@@ -71,8 +75,32 @@ class BatchArchiveInit(object):
         self.pro_status = 1
         self.error_msg = None
 
+    def get_session(self):
+        """
+         获取 sqlalchemy 的SESSION 会话
+        :return:
+        """
+
+        user = os.environ["DIDP_CFG_DB_USER"]
+        password = os.environ["DIDP_CFG_DB_PWD"]
+        db_url = os.environ["DIDP_CFG_DB_JDBC_URL"]
+        x = db_url.index("//")
+        y = db_url.index("?")
+        db_url = db_url[x + 2:y]
+
+        # db_name = db_login_info['db_name']
+
+        engine_str = "mysql+mysqlconnector://{db_user}:{password}@{db_url}".format(
+            db_user=user, password=password,
+            db_url=db_url,
+        )
+        engine = create_engine(engine_str)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+        return session
+
     def init_common_dict(self):
-        common_dict = self.hive_util.get_common_dict()
+        common_dict = CommonParamsDao(self.session).get_all_common_code()
         if len(common_dict) == 0:
             raise BizException("初始化公共代码失败！请检查数据库")
         else:
@@ -137,7 +165,8 @@ class BatchArchiveInit(object):
                                  "2-字段在列中 3-字段在分区中）")
         parser.add_argument("-clusterCol", required=True, help="分桶键")
         parser.add_argument("-bucketsNum", required=True, help="分桶数")
-        parser.add_argument("-ignoreErrLines", required=False,help="是否忽略错误行（0-否 1-是）")
+        parser.add_argument("-ignoreErrLines", required=False,
+                            help="是否忽略错误行（0-否 1-是）")
         parser.add_argument("-asset", required=False, help="是否补记数据资产（0-否 1-是）")
         args = parser.parse_args()
         return args
@@ -190,6 +219,10 @@ class BatchArchiveInit(object):
                                 ERR_MESSAGE=self.error_msg
                                 )
         self.mon_run_log_service.create_run_log(run_log)
+
+        if self.session:
+            self.session.close()
+        self.hive_util.close()
 
     def process_ddl(self):
         """
@@ -457,6 +490,7 @@ class BatchArchiveInit(object):
                 partiton_org=self.partition_org)
 
         return " partition (" + hql[:-1] + ")"
+
 
 if __name__ == '__main__':
     batch_init = BatchArchiveInit()

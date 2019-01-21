@@ -1,4 +1,4 @@
-# -*- coding: UTF-8 -*-  
+# -*- coding: UTF-8 -*-
 
 # Date Time     : 2019/1/9
 # Write By      : adtec(ZENGYU)
@@ -17,14 +17,15 @@ from uuid import uuid1
 
 import datetime
 from archive.archive_enum import PartitionKey, AddColumn
-from archive.db_operator import SESSION, CommonParamsDao
 from archive.hive_field_info import HiveFieldInfo
-from archive.model import DidpCommonParams
 from utils.didp_db_operator import DbOperator
 from utils.didp_logger import Logger
 from utils.didp_tools import get_db_login_info
 
 LOG = Logger()
+
+HIVE_CLASS = "org.apache.hive.jdbc.HiveDriver"
+DRIVER_PATH = "drivers\\jdbc\\inceptor-driver-6.0.0.jar"
 
 
 def get_uuid():
@@ -187,15 +188,16 @@ class StringUtil(object):
 
 
 class HiveUtil(object):
-    hive_class = "org.apache.hive.jdbc.HiveDriver"
-    driver_path = "drivers\\jdbc\\inceptor-driver-6.0.0.jar"
-
     def __init__(self, schema_id):
         self.login_info = get_db_login_info(schema_id)[1]
         # self.db_oper=None
         self.db_oper = DbOperator(self.login_info["db_user"],
-                                  self.login_info["db_pwd"], self.hive_class,
-                                  self.login_info["jdbc_url"], self.driver_path)
+                                  self.login_info["db_pwd"], HIVE_CLASS,
+                                  self.login_info["jdbc_url"], DRIVER_PATH)
+        self.db_oper.connect()
+
+    def close(self):
+        self.db_oper.close()
 
     def exist_table(self, db_name, table_name):
         """
@@ -203,17 +205,17 @@ class HiveUtil(object):
         :param table_name:  数据表名
         :return:
         """
+
         sql1 = "use {dbName}".format(dbName=db_name)
         sql = "show tables '{tableName}'".format(tableName=table_name)
-
-        self.db_oper.connect()
         self.db_oper.do(sql1)
-        result = self.db_oper.fetchall(sql)
-        self.db_oper.close()
+        result = self.db_oper.fetchone(sql)
+        if result:
+            return True
+        else:
+            return False
 
-        return len(result) == 1
-
-    def has_partition(self, db_name, table_name):
+    def has_partition(self, common_dict, db_name, table_name):
         """
         :param db_name: 数据库名
         :param table_name:  表名
@@ -221,14 +223,8 @@ class HiveUtil(object):
         """
         result = self.get_table_desc(db_name, table_name)
         # 在数据库中获取时间分区键的名称
-        didp_params = SESSION.query(DidpCommonParams).filter(
-            DidpCommonParams.GROUP_NAME
-            == PartitionKey.GROUP.value,
-            DidpCommonParams.PARAM_NAME
-            == PartitionKey.DATE_SCOPE.value).all()
 
-        pri_key = didp_params[0].PARAM_VALUE
-
+        pri_key = common_dict.get(PartitionKey.DATE_SCOPE.value)
         flag = False
         for col in result:
             print col[0]
@@ -237,7 +233,7 @@ class HiveUtil(object):
                 break
         return flag
 
-    def get_org_pos(self, db_name, table_name):
+    def get_org_pos(self, common_dict, db_name, table_name):
         """
             获取机构分区字段
         :param db_name:
@@ -246,16 +242,8 @@ class HiveUtil(object):
         """
         result = self.get_table_desc(db_name, table_name)
         # 在数据库中获取机构分区键的位置
-        p_key = SESSION.query(DidpCommonParams).filter(
-            DidpCommonParams.GROUP_NAME
-            == PartitionKey.GROUP.value,
-            DidpCommonParams.PARAM_NAME
-            == PartitionKey.ORG.value).one().PARAM_VALUE
-        a_key = SESSION.query(DidpCommonParams).filter(
-            DidpCommonParams.GROUP_NAME
-            == AddColumn.GROUP.value,
-            DidpCommonParams.PARAM_NAME
-            == AddColumn.COL_ORG.value).one().PARAM_VALUE
+        p_key = common_dict.get(PartitionKey.ORG.value)
+        a_key = common_dict.get(AddColumn.COL_ORG.value)
         # 机构字段位置（1-没有机构字段 2-字段在列中 3-字段在分区中）
         key = 1
         for col in result:
@@ -272,29 +260,27 @@ class HiveUtil(object):
     def get_table_descformatted(self, db_name, table_name):
         sql1 = "use {database}".format(database=db_name)
         sql = "desc formatted {table}".format(table=table_name)
-        self.db_oper.connect()
         self.db_oper.do(sql1)
         result = self.db_oper.fetchall(sql)
-        self.db_oper.close()
         return result
 
     def get_table_desc(self, db_name, table_name):
         sql1 = "use {database}".format(database=db_name)
         sql = "desc {table}".format(table=table_name)
-        self.db_oper.connect()
+
         self.db_oper.do(sql1)
         result = self.db_oper.fetchall(sql)
-        self.db_oper.close()
+        # self.db_oper.close()
         return result
 
     def execute_with_dynamic(self, sql):
         sql1 = "set hive.exec.dynamic.partition=true"
-        self.db_oper.connect()
+
         self.db_oper.do(sql1)
         self.db_oper.do(sql)
 
     def execute(self, sql):
-        self.db_oper.execute(sql)
+        self.db_oper.do(sql)
 
     def execute_sql(self, sql):
         """
@@ -302,16 +288,13 @@ class HiveUtil(object):
         :param self:
         :return:
         """
-        return self.db_oper.fetchall_direct(sql)
+        return self.db_oper.fetchall(sql)
 
-    @staticmethod
-    def get_common_dict():
-        return CommonParamsDao().get_all_common_code()
-
-    def get_hive_meta_field(self, db_name, table_name, filter):
-        # type: (str, str, bool) -> list(HiveFieldInfo)
+    def get_hive_meta_field(self, common_dict, db_name, table_name, filter):
+        # type: (dict, str, str, bool) -> list(HiveFieldInfo)
         """
             获取Hive的元数据信息
+        :param common_dict:
         :param db_name:
         :param table_name:
         :param filter: 是否过滤添加字段(part_org,part_date等)
@@ -321,8 +304,6 @@ class HiveUtil(object):
         add_cols = set()
         partition_cols = set()
         if filter:
-            common_dict = HiveUtil.get_common_dict()
-
             for add_col in AddColumn:
                 v = common_dict.get(add_col.value)
                 if v:
@@ -360,10 +341,11 @@ class HiveUtil(object):
 
         return result
 
-    def compare(self, db_name1, table1, db_name2, table2, is_compare_comments):
+    def compare(self, common_dict, db_name1, table1, db_name2, table2,
+                is_compare_comments):
 
-        meta1 = self.get_hive_meta_field(db_name1, table1, False)
-        meta2 = self.get_hive_meta_field(db_name2, table2, False)
+        meta1 = self.get_hive_meta_field(common_dict, db_name1, table1, False)
+        meta2 = self.get_hive_meta_field(common_dict, db_name2, table2, False)
         if not meta1 and not meta2:
             return True
         elif meta1 is None or meta2 is None:
@@ -398,5 +380,8 @@ class HiveUtil(object):
 
 if __name__ == '__main__':
     hive_util = HiveUtil("d5852c01c3fd44c6b8ad0bcab9ea0de5")
-    x = hive_util.get_org_pos("orc_test", "test_archive_all")
-    print x
+    # a = hive_util.get_table_descformatted("orc_test", "test_archive")
+    # print a
+    # a= hive_util.execute_sql("select * from orc_test.test_archive limit 10")
+    # for x in a :
+    #     print a

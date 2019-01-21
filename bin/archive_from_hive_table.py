@@ -18,6 +18,7 @@ def main():
     args = ArchiveData.archive_init()
     # 判断归档模式 执行不同的实现类
     archive = None
+
     save_mode = args.saveMode
     if save_mode == "1":
         archive = AllArchive()

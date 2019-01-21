@@ -8,10 +8,6 @@
 import os
 import sys
 
-import re
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 reload(sys)
 sys.setdefaultencoding('utf8')
 sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
@@ -20,39 +16,13 @@ from archive.archive_enum import SaveMode
 from archive.model import *
 
 
-def get_session():
-    """
-     获取 sqlalchemy 的SESSION 会话
-    :return:
-    """
-
-    user = os.environ["DIDP_CFG_DB_USER"]
-    password = os.environ["DIDP_CFG_DB_PWD"]
-    db_url = os.environ["DIDP_CFG_DB_JDBC_URL"]
-    x = db_url.index("//")
-    y = db_url.index("?")
-    db_url = db_url[x + 2:y]
-
-    # db_name = db_login_info['db_name']
-
-    engine_str = "mysql+mysqlconnector://{db_user}:{password}@{db_url}".format(
-        db_user=user, password=password,
-        db_url=db_url,
-    )
-    engine = create_engine(engine_str)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-
-    return session
-
-
-SESSION = get_session()
-
-
 class CommonParamsDao():
     """
         操作公共代码类
     """
+
+    def __init__(self, session):
+        self.SESSION = session
 
     def get_common_param(self, group_name, param_name):
         """
@@ -61,7 +31,7 @@ class CommonParamsDao():
         :param param_name: 参数名
         :return:
         """
-        result = SESSION.query(DidpCommonParams).filter(
+        result = self.SESSION.query(DidpCommonParams).filter(
             DidpCommonParams.GROUP_NAME == group_name,
             DidpCommonParams.PARAM_NAME == param_name).one()
         return result
@@ -71,7 +41,7 @@ class CommonParamsDao():
             获取所有的公共参数放于dict中
         :return:
         """
-        result = SESSION.query(DidpCommonParams).all()
+        result = self.SESSION.query(DidpCommonParams).all()
         common_dict = {}
         for r in result:
             common_dict[r.PARAM_NAME] = r.PARAM_VALUE
@@ -84,51 +54,45 @@ class MetaColumnInfoDao(object):
         元数据字段信息访问
     """
 
-    @staticmethod
-    def delete_all_column(table_id):
-        SESSION.query(DidpMetaColumnInfo).filter(
-            DidpMetaColumnInfo.TABLE_ID == table_id).delete()
-        SESSION.commit()
-        SESSION.close()
+    def __init__(self, session):
+        self.SESSION = session
 
-    @staticmethod
-    def delete_column(table_id, col_name):
-        SESSION.query(DidpMetaColumnInfo).filter(
+    def delete_all_column(self, table_id):
+        self.SESSION.query(DidpMetaColumnInfo).filter(
+            DidpMetaColumnInfo.TABLE_ID == table_id).delete()
+        self.SESSION.commit()
+
+    def delete_column(self, table_id, col_name):
+        self.SESSION.query(DidpMetaColumnInfo).filter(
             DidpMetaColumnInfo.TABLE_ID == table_id,
             DidpMetaColumnInfo.COL_NAME == col_name,
         ).delete()
-        SESSION.commit()
-        SESSION.close()
+        self.SESSION.commit()
 
-    @staticmethod
-    def get_meta_data_by_table(table_id):
-        result = SESSION.query(DidpMetaColumnInfo).filter(
+    def get_meta_data_by_table(self, table_id):
+        result = self.SESSION.query(DidpMetaColumnInfo).filter(
             DidpMetaColumnInfo.TABLE_ID == table_id).all()
-        SESSION.close()
+
         return result
 
-    @staticmethod
-    def get_column(table_id,col_name ):
-        result = SESSION.query(DidpMetaColumnInfo).filter(
+    def get_column(self, table_id, col_name):
+        result = self.SESSION.query(DidpMetaColumnInfo).filter(
             DidpMetaColumnInfo.TABLE_ID == table_id,
             DidpMetaColumnInfo.COL_NAME == col_name,
         ).all()
-        SESSION.close()
+
         return result
 
-    @staticmethod
-    def add_meta_column(meta_field_info):
+    def add_meta_column(self, meta_field_info):
         """
             添加字段元数据
         :param meta_field_info: 字段元数据对象
         :return:
         """
-        SESSION.add(meta_field_info)
-        SESSION.commit()
-        SESSION.close()
+        self.SESSION.add(meta_field_info)
+        self.SESSION.commit()
 
-    @staticmethod
-    def update_meta_column(table_id, col_name, update_dict):
+    def update_meta_column(self, table_id, col_name, update_dict):
         """
             更新字段
         :param table_id: 表id
@@ -136,17 +100,18 @@ class MetaColumnInfoDao(object):
         :param update_dict: 更新字典
         :return:
         """
-        SESSION.query(DidpMetaColumnInfo).filter(
+        self.SESSION.query(DidpMetaColumnInfo).filter(
             DidpMetaColumnInfo.TABLE_ID == table_id,
             DidpMetaColumnInfo.COL_NAME == col_name).update(update_dict)
 
-        SESSION.commit()
-        SESSION.close()
+        self.SESSION.commit()
 
 
 class MetaColumnInfoHisDao(object):
-    @staticmethod
-    def update_meta_column_his(table_id, column_name, update_dict):
+    def __init__(self, session):
+        self.SESSION = session
+
+    def update_meta_column_his(self, table_id, column_name, update_dict):
         """
             更新表元数据字段
         :param table_id: 表ID
@@ -154,33 +119,29 @@ class MetaColumnInfoHisDao(object):
         :param update_dict: 更新内容
         :return:
         """
-        SESSION.query(DidpMetaColumnInfoHis).filter(
+        self.SESSION.query(DidpMetaColumnInfoHis).filter(
             DidpMetaColumnInfoHis.TABLE_ID == table_id,
             DidpMetaColumnInfoHis.COL_NAME == column_name).update(update_dict)
-        SESSION.commit()
-        SESSION.close()
+        self.SESSION.commit()
 
-    @staticmethod
-    def add_meta_column_his(meta_field_info_his):
+    def add_meta_column_his(self, meta_field_info_his):
         """
             添加字段元数据
         :param meta_field_info_his: 字段元数据对象
         :return:
         """
-        SESSION.add(meta_field_info_his)
-        SESSION.commit()
-        SESSION.close()
+        self.SESSION.add(meta_field_info_his)
+        self.SESSION.commit()
 
-    @staticmethod
-    def get_meta_column_info(table_his_id):
+    def get_meta_column_info(self, table_his_id):
         """
                 获取字段的信息
         :param table_his_id:
         :return:
         """
-        result = SESSION.query(DidpMetaColumnInfoHis).filter(
+        result = self.SESSION.query(DidpMetaColumnInfoHis).filter(
             DidpMetaColumnInfoHis.TABLE_HIS_ID == table_his_id).all()
-        SESSION.close()
+
         return result
 
 
@@ -189,6 +150,9 @@ class MetaTableInfoDao(object):
      表元数据信息表
     """
 
+    def __init__(self, session):
+        self.SESSION = session
+
     def add_meta_table_info(self, meta_table_info):
         """
 
@@ -196,21 +160,20 @@ class MetaTableInfoDao(object):
         :return:
         """
 
-        SESSION.add(meta_table_info)
-        SESSION.commit()
+        self.SESSION.add(meta_table_info)
+        self.SESSION.commit()
 
-    @staticmethod
-    def get_meta_table_info(schema_id, table_name):
+    def get_meta_table_info(self, schema_id, table_name):
         """
             获取Meta_table_info
         :param schema_id: SCHEMA_ID
         :param table_name: 表名
         :return: 返回唯一的 表
         """
-        meta_table_info = SESSION.query(DidpMetaTableInfo).filter(
+        meta_table_info = self.SESSION.query(DidpMetaTableInfo).filter(
             DidpMetaTableInfo.SCHEMA_ID == schema_id,
             DidpMetaTableInfo.TABLE_NAME == table_name).all()
-        SESSION.close()
+
         if len(meta_table_info) == 0:
             return None
         return meta_table_info[0]
@@ -222,27 +185,24 @@ class MetaTableInfoDao(object):
         :param release_time:
         :return:
         """
-        meta_table_info = SESSION.query(DidpMetaTableInfo).filter(
+        meta_table_info = self.SESSION.query(DidpMetaTableInfo).filter(
             DidpMetaTableInfo.TABLE_NAME == table_name,
             DidpMetaTableInfo.RELEASE_DATE == release_time).all()
-        SESSION.close()
+
         return meta_table_info
 
-    @staticmethod
-    def delete_meta_table_info(table_id):
+    def delete_meta_table_info(self, table_id):
         """
             删除表元数据
         :param table_id:
         :return:
         """
 
-        SESSION.query(DidpMetaTableInfo).filter(
+        self.SESSION.query(DidpMetaTableInfo).filter(
             DidpMetaTableInfo.TABLE_ID == table_id, ).delete()
-        SESSION.commit()
-        SESSION.close()
+        self.SESSION.commit()
 
-    @staticmethod
-    def update_meta_table_info(schema_id, table_name, update_dict):
+    def update_meta_table_info(self, schema_id, table_name, update_dict):
         """
             更新表元数据信息
         :param schema_id:
@@ -250,29 +210,30 @@ class MetaTableInfoDao(object):
         :param update_dict:
         :return:
         """
-        SESSION.query(DidpMetaTableInfo) \
+        self.SESSION.query(DidpMetaTableInfo) \
             .filter_by(TABLE_NAME=table_name,
                        SCHEMA_ID=schema_id).update(update_dict)
-        SESSION.commit()
-        SESSION.close()
+        self.SESSION.commit()
 
 
 class MetaTableInfoHisDao(object):
-    @staticmethod
-    def get_recent_table_info_his(table_name, release_date):
+    def __init__(self, session):
+        self.SESSION = session
+
+    def get_recent_table_info_his(self, table_name, release_date):
         """
                     获取最近的表元数据信息
                 :param table_name:
                 :param release_date:
                 :return: 最近一天的元数据信息
                 """
-        result = SESSION.query(DidpMetaTableInfoHis).filter(
+        result = self.SESSION.query(DidpMetaTableInfoHis).filter(
             DidpMetaTableInfoHis.TABLE_NAME == table_name,
             DidpMetaTableInfoHis.RELEASE_DATE <= release_date).order_by(
             DidpMetaTableInfoHis.RELEASE_DATE.desc()).all()
 
         if len(result) == 0:
-            result = SESSION.query(DidpMetaTableInfo).filter(
+            result = self.SESSION.query(DidpMetaTableInfo).filter(
                 DidpMetaTableInfo.TABLE_NAME == table_name,
                 DidpMetaTableInfo.RELEASE_DATE >= release_date).order_by(
                 DidpMetaTableInfo.RELEASE_DATE.asc()).all()
@@ -281,49 +242,41 @@ class MetaTableInfoHisDao(object):
         else:
             return None
 
-    @staticmethod
-    def get_all():
-        result = SESSION.query(DidpMetaTableInfoHis).all()
+    def get_all(self):
+        result = self.SESSION.query(DidpMetaTableInfoHis).all()
         return result
 
-    @staticmethod
-    def update_meta_table_info_his(table_his_id, update_dict):
+    def update_meta_table_info_his(self, table_his_id, update_dict):
         """
                 更新历史表元数据信息
         :param table_his_id:
         :param update_dict:
         :return:
         """
-        SESSION.query(DidpMetaTableInfoHis).filter(
+        self.SESSION.query(DidpMetaTableInfoHis).filter(
             DidpMetaTableInfoHis.TABLE_HIS_ID == table_his_id).update(
             update_dict)
-        SESSION.commit()
-        SESSION.close()
+        self.SESSION.commit()
 
-    @staticmethod
-    def add_meta_table_info_his(meta_table_info_his):
-        SESSION.add(meta_table_info_his)
-        SESSION.commit()
-        SESSION.close()
+    def add_meta_table_info_his(self, meta_table_info_his):
+        self.SESSION.add(meta_table_info_his)
+        self.SESSION.commit()
 
-    @staticmethod
-    def get_meta_table_info_his_list(table_id, schema_id, data_date):
-        result = SESSION.query(DidpMetaTableInfoHis).filter(
+    def get_meta_table_info_his_list(self, table_id, schema_id, data_date):
+        result = self.SESSION.query(DidpMetaTableInfoHis).filter(
             DidpMetaTableInfoHis.TABLE_ID == table_id,
             DidpMetaTableInfoHis.SCHEMA_ID == schema_id,
             DidpMetaTableInfoHis.RELEASE_DATE == data_date).all()
-        SESSION.close()
+
         return result
 
-    @staticmethod
-    def get_meta_table_info_his(table_his_id):
-        result = SESSION.query(DidpMetaTableInfoHis).filter(
+    def get_meta_table_info_his(self, table_his_id):
+        result = self.SESSION.query(DidpMetaTableInfoHis).filter(
             DidpMetaTableInfoHis.TABLE_HIS_ID == table_his_id
         ).one()
         return result
 
-    @staticmethod
-    def get_before_meta_table_infos(schema_id, table_name, data_date):
+    def get_before_meta_table_infos(self, schema_id, table_name, data_date):
         """
             获取data_date 之前的表元数据版本
         :param schema_id:
@@ -331,16 +284,15 @@ class MetaTableInfoHisDao(object):
         :param data_date: 归档日期
         :return: List<DidpMetaTableInfo>
         """
-        result = SESSION.query(DidpMetaTableInfoHis). \
+        result = self.SESSION.query(DidpMetaTableInfoHis). \
             filter(DidpMetaTableInfoHis.SCHEMA_ID == schema_id,
                    DidpMetaTableInfoHis.TABLE_NAME == table_name,
                    DidpMetaTableInfoHis.RELEASE_DATE < data_date). \
             order_by(DidpMetaTableInfoHis.RELEASE_DATE.desc()).all()
-        SESSION.close()
+
         return result
 
-    @staticmethod
-    def get_after_meta_table_infos(schema_id, table_name, data_date):
+    def get_after_meta_table_infos(self, schema_id, table_name, data_date):
         """
                 获取data_date 之后的表元数据版本
             :param schema_id:
@@ -348,17 +300,16 @@ class MetaTableInfoHisDao(object):
             :param data_date: 归档日期
             :return: List<DidpMetaTableInfo>
             """
-        result = SESSION.query(DidpMetaTableInfoHis). \
+        result = self.SESSION.query(DidpMetaTableInfoHis). \
             filter(
             DidpMetaTableInfoHis.SCHEMA_ID == schema_id,
             DidpMetaTableInfoHis.TABLE_NAME == table_name,
             DidpMetaTableInfoHis.RELEASE_DATE > data_date). \
             order_by(DidpMetaTableInfoHis.RELEASE_DATE.asc()).all()
-        SESSION.close()
+
         return result
 
-    @staticmethod
-    def get_meta_table_info_by_time(schema_id, table_name, data_date):
+    def get_meta_table_info_by_time(self, schema_id, table_name, data_date):
         """
             可能会返回多个结果
         :param schema_id:
@@ -366,16 +317,15 @@ class MetaTableInfoHisDao(object):
         :param data_date:
         :return:
         """
-        result = SESSION.query(DidpMetaTableInfoHis). \
+        result = self.SESSION.query(DidpMetaTableInfoHis). \
             filter(
             DidpMetaTableInfoHis.SCHEMA_ID == schema_id,
             DidpMetaTableInfoHis.TABLE_NAME == table_name,
             DidpMetaTableInfoHis.RELEASE_DATE == data_date).all()
-        SESSION.close()
+
         return result
 
-    @staticmethod
-    def get_meta_table_info_by_detail(schema_id, table_name, data_date,
+    def get_meta_table_info_by_detail(self, schema_id, table_name, data_date,
                                       comment,
                                       table_comment_change_ddl):
         """
@@ -389,7 +339,7 @@ class MetaTableInfoHisDao(object):
         :return:
         """
         if table_comment_change_ddl.lower().__eq__("true"):
-            result = SESSION.query(DidpMetaTableInfoHis). \
+            result = self.SESSION.query(DidpMetaTableInfoHis). \
                 filter(
                 DidpMetaTableInfoHis.SCHEMA_ID == schema_id,
                 DidpMetaTableInfoHis.TABLE_NAME == table_name,
@@ -397,29 +347,30 @@ class MetaTableInfoHisDao(object):
                 DidpMetaTableInfoHis.DESCRIPTION == comment
             ).all()
         else:
-            result = SESSION.query(DidpMetaTableInfoHis). \
+            result = self.SESSION.query(DidpMetaTableInfoHis). \
                 filter(
                 DidpMetaTableInfoHis.SCHEMA_ID == schema_id,
                 DidpMetaTableInfoHis.TABLE_NAME == table_name,
                 DidpMetaTableInfoHis.RELEASE_DATE == data_date
             ).all()
-        SESSION.close()
+
         return result
 
         pass
 
 
 class MonRunLogDao(object):
-    @staticmethod
-    def add_mon_run_log(didp_mon_run_log):
+    def __init__(self, session):
+        self.SESSION = session
+
+    def add_mon_run_log(self, didp_mon_run_log):
         """
             新增执行日记记录
         :param didp_mon_run_log: 执行日志对象
         :return:
         """
-        SESSION.add(didp_mon_run_log)
-        SESSION.commit()
-        SESSION.close()
+        self.SESSION.add(didp_mon_run_log)
+        self.SESSION.commit()
 
     def get_mon_run_log(self, pro_id, biz_date, org, batch_no):
         """
@@ -432,8 +383,7 @@ class MonRunLogDao(object):
         """
         pass
 
-    @staticmethod
-    def get_mon_run_log_list(table_name, obj, pros_type, org, start_date,
+    def get_mon_run_log_list(self, table_name, obj, pros_type, org, start_date,
                              end_date):
         """
             获取执行日志集合
@@ -444,7 +394,7 @@ class MonRunLogDao(object):
         :param end_date: 结束
         :return:
         """
-        result = SESSION.query(DidpMonRunLog).filter(
+        result = self.SESSION.query(DidpMonRunLog).filter(
             DidpMonRunLog.TABLE_NAME == table_name,
             DidpMonRunLog.DATA_OBJECT_NAME == obj,
             DidpMonRunLog.BRANCH_NO == org,
@@ -459,8 +409,7 @@ class MonRunLogDao(object):
         else:
             return result
 
-    @staticmethod
-    def find_latest_all_archive(system, obj, org, biz_date):
+    def find_latest_all_archive(self, system, obj, org, biz_date):
         """
             获取最近的全量归档
         :param system: 系统
@@ -469,7 +418,7 @@ class MonRunLogDao(object):
         :param biz_date:
         :return:
         """
-        result = SESSION.query(DidpMonRunLog).filter(
+        result = self.SESSION.query(DidpMonRunLog).filter(
             DidpMonRunLog.SYSTEM_KEY == system,
             DidpMonRunLog.DATA_OBJECT_NAME == obj,
             DidpMonRunLog.BRANCH_NO == org,
@@ -489,17 +438,20 @@ class ArchiveLockDao(object):
         归档控制Dao
     """
 
+    def __init__(self, session):
+        self.SESSION = session
+
     def add(self, obj, org):
         didp_archive_ctrl = DidpHdsStructArchiveCtrl(OBJECT_NAME=obj,
                                                      ORG_CODE=org)
-        SESSION.add(didp_archive_ctrl)
-        SESSION.commit()
+        self.SESSION.add(didp_archive_ctrl)
+        self.SESSION.commit()
 
     def delete_by_pk(self, obj, org):
-        SESSION.query(DidpHdsStructArchiveCtrl). \
+        self.SESSION.query(DidpHdsStructArchiveCtrl). \
             filter(DidpHdsStructArchiveCtrl.OBJECT_NAME == obj,
                    DidpHdsStructArchiveCtrl.ORG_CODE == org).delete()
-        SESSION.commit()
+        self.SESSION.commit()
 
     def find_by_pk(self, obj, org):
         """
@@ -508,7 +460,7 @@ class ArchiveLockDao(object):
         :param org: 机构名
         :return:  查询结果
         """
-        result = SESSION.query(DidpHdsStructArchiveCtrl). \
+        result = self.SESSION.query(DidpHdsStructArchiveCtrl). \
             filter(DidpHdsStructArchiveCtrl.OBJECT_NAME == obj,
                    DidpHdsStructArchiveCtrl.ORG_CODE == org,
                    ).all()
@@ -520,17 +472,20 @@ class MetaLockDao(object):
         元数据控制Dao
     """
 
+    def __init__(self, session):
+        self.SESSION = session
+
     def add(self, obj, org):
         mate_ctrl = DidpHdsStructMetaCtrl(OBJECT_NAME=obj,
                                           ORG_CODE=org)
-        SESSION.add(mate_ctrl)
-        SESSION.commit()
+        self.SESSION.add(mate_ctrl)
+        self.SESSION.commit()
 
     def delete_by_pk(self, obj, org):
-        SESSION.query(DidpHdsStructMetaCtrl). \
+        self.SESSION.query(DidpHdsStructMetaCtrl). \
             filter(DidpHdsStructMetaCtrl.OBJECT_NAME == obj,
                    DidpHdsStructMetaCtrl.ORG_CODE == org).delete()
-        SESSION.commit()
+        self.SESSION.commit()
 
     def find_by_pk(self, obj, org):
         """
@@ -539,7 +494,7 @@ class MetaLockDao(object):
         :param org: 机构名
         :return:  查询结果
         """
-        result = SESSION.query(DidpHdsStructMetaCtrl). \
+        result = self.SESSION.query(DidpHdsStructMetaCtrl). \
             filter(DidpHdsStructMetaCtrl.OBJECT_NAME == obj,
                    DidpHdsStructMetaCtrl.ORG_CODE == org,
                    ).all()

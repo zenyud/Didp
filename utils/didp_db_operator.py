@@ -216,7 +216,6 @@ class DbOperator(object):
         else:
             return result_info
 
-
     def fetchall_direct(self, sql):
         """ 执行返回所有结果的sql(短链接)
         
