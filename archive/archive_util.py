@@ -385,3 +385,4 @@ if __name__ == '__main__':
     # a= hive_util.execute_sql("select * from orc_test.test_archive limit 10")
     # for x in a :
     #     print a
+    print hive_util.exist_table("orc_test","mysql_test_table006_init_init")

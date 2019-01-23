@@ -7,6 +7,7 @@
 # Remarks       :
 import sys
 import os
+
 reload(sys)
 sys.setdefaultencoding('utf8')
 sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
@@ -16,11 +17,10 @@ from archive.db_operator import *
 from archive.hive_field_info import HiveFieldInfo, MetaTypeInfo
 from utils.didp_logger import Logger
 
-
 LOG = Logger()
 
 last_update_time = DateUtil.get_now_date_standy()
-LAST_UPDATE_USER = "hds"
+LAST_UPDATE_USER = "SYSTEM"
 
 
 class HdsStructControl(object):
@@ -54,7 +54,6 @@ class HdsStructControl(object):
         :return:
         """
         self.archive_lock_dao.add(obj, org)
-
 
     def archive_unlock(self, obj, org):
         """
@@ -168,7 +167,7 @@ class MetaDataService(object):
         source_field_infos = []  # 获取接入数据字段列表
 
         # 字段信息
-        cols = hive_util.get_table_desc(db_name,table_name)
+        cols = hive_util.get_table_desc(db_name, table_name)
 
         filter_col_list = None
         if filter_cols:
@@ -612,12 +611,32 @@ class MonRunLogService(object):
         """
         self.mon_run_log_dao.add_mon_run_log(didp_mon_run_log)
 
-    def find_run_logs(self, table_name, obj, org, start_date, end_date):
-        return self.mon_run_log_dao.get_mon_run_log_list(table_name, obj,
+    def find_run_logs(self, system, obj, org, start_date, end_date):
+        """
+            查看某个数据对象的执行日志
+        :param system:
+        :param obj:
+        :param org:
+        :param start_date:
+        :param end_date:
+        :return:
+        """
+        return self.mon_run_log_dao.get_mon_run_log_list(system, obj,
                                                          "5",
                                                          org,
                                                          start_date,
                                                          end_date)
+
+    def find_log_with_table(self, system, obj, table_name, org, start_date,
+                            end_date):
+        return self.mon_run_log_dao.get_mon_run_log_with_table(system,
+                                                               obj,
+                                                               table_name,
+                                                               "5",
+                                                               org,
+                                                               start_date,
+                                                               end_date
+                                                               )
 
     def find_latest_all_archive(self, system, obj, org, biz_date):
         """

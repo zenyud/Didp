@@ -10,6 +10,8 @@ import os
 import sys
 import time
 
+import traceback
+
 reload(sys)
 sys.setdefaultencoding('utf8')
 sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
@@ -36,46 +38,60 @@ class BatchArchiveInit(object):
     """
 
     def __init__(self):
-        self.__args = self.archive_init()
+
+        self.__args = self.archive_init()  # 参数初始化
         self.session = self.get_session()
         self.__print_argument()
         self.pro_start_date = DateUtil.get_now_date_standy()
-        self.schema_id = self.__args.schemaID
+        self.schema_id = self.__args.schID
         self.hive_util = HiveUtil(self.schema_id)
         self.meta_data_service = MetaDataService(self.session)
         self.mon_run_log_service = MonRunLogService(self.session)
-        self.schema_id = self.__args.schemaID
-        self.source_db = self.__args.sourceDbName
-        self.source_table_name = self.__args.sourceTableName
-        self.filter_cols = self.__args.filterCol
-        self.db_name = self.__args.dbName
-        self.table_name = self.__args.tableName
-        self.bucket_num = self.__args.bucketsNum
+        self.source_db = self.__args.sDb  # 源库名
+        self.source_table_name = self.__args.sTable  # 源表名
+        self.filter_cols = self.__args.filCol  # 过滤字段
+        self.db_name = self.__args.db  # 入库数据库名
+        self.table_name = self.__args.table  # 入库表表名
+
+        self.bucket_num = self.__args.buckNum  # 分桶数
+        # 公共参数字典
         self.common_dict = self.init_common_dict()
 
+        # 数据源字段信息
         self.source_ddl = self.meta_data_service. \
             parse_input_table(self.hive_util,
                               self.source_db,
                               self.source_table_name,
                               self.filter_cols)
+
+        # 日期字段名
         self.col_date = self.common_dict.get(AddColumn.COL_DATE.value)
+
+        # 机构字段名
         self.col_org = self.common_dict.get(AddColumn.COL_ORG.value)
-        self.org_pos = int(self.__args.orgPos)
-        self.data_range = self.__args.dateRange
-        self.cluster_col = self.__args.clusterCol
+        self.org_pos = int(self.__args.orgPos)  # 机构字段位置
+        self.data_range = self.__args.dtRange  # 日期分区范围
+        self.cluster_col = self.__args.cluCol  # 分桶键
+        # 机构分区字段名
         self.partition_org = self.common_dict.get(PartitionKey.ORG.value)
         self.partition_date_scope = self.common_dict.get(
-            PartitionKey.DATE_SCOPE.value)
-        self.date_col = self.__args.dateCol
-        self.date_format = self.__args.dateColFormat
-        self.ignore_err_line = self.__args.ignoreErrLines
-        self.now_date = DateUtil.get_now_date_standy()
-        self.obj = self.__args.obj
-        self.org = self.__args.org
-        self.pro_status = 1
-        self.error_msg = None
+            PartitionKey.DATE_SCOPE.value)  # 分区字段名
+        self.date_col = self.__args.dateCol  # 日期字段
+        self.date_format = self.__args.dateFm  # 日期字段格式
+        self.ignore_err_line = int(self.__args.igErr)  # 是否忽略错误行
 
-    def get_session(self):
+        # 当日日期
+        # %Y-%m-%d %H:%M:%S
+        self.now_date = DateUtil.get_now_date_standy()
+
+        self.obj = self.__args.obj  # 数据对象名
+        self.org = self.__args.org  # 机构字段名
+        self.pro_status = 1  # 处理状态
+        self.error_msg = None  # 错误信息
+        self.system = self.__args.system
+
+    @staticmethod
+    def get_session():
         """
          获取 sqlalchemy 的SESSION 会话
         :return:
@@ -110,24 +126,24 @@ class BatchArchiveInit(object):
         LOG.debug("批量初始化归档")
         LOG.debug("-------------------参数清单-------------------")
         LOG.debug("数据对象名       : {0}".format(self.__args.obj))
-        LOG.debug("SCHEMA ID       : {0}".format(self.__args.schemaID))
+        LOG.debug("SCHEMA ID       : {0}".format(self.__args.schID))
         LOG.debug("流程ID       : {0}".format(self.__args.proID))
         LOG.debug("系统标识       : {0}".format(self.__args.system))
         LOG.debug("批次号       : {0}".format(self.__args.batch))
         LOG.debug("机构号           : {0}".format(self.__args.org))
         LOG.debug("日期字段           : {0}".format(self.__args.dateCol))
-        LOG.debug("日期格式           : {0}".format(self.__args.dateColFormat))
-        LOG.debug("源库名           : {0}".format(self.__args.sourceDbName))
-        LOG.debug("源表名           : {0}".format(self.__args.sourceTableName))
-        LOG.debug("过滤条件         : {0}".format(self.__args.filterSql))
-        LOG.debug("过滤字段         : {0}".format(self.__args.filterCol))
-        LOG.debug("归档库名          : {0}".format(self.__args.dbName))
-        LOG.debug("归档表名          : {0}".format(self.__args.tableName))
-        LOG.debug("日期分区范围        : {0}".format(self.__args.dateRange))
+        LOG.debug("日期格式           : {0}".format(self.__args.dateFm))
+        LOG.debug("源库名           : {0}".format(self.__args.sDb))
+        LOG.debug("源表名           : {0}".format(self.__args.sTable))
+        LOG.debug("过滤条件         : {0}".format(self.__args.filSql))
+        LOG.debug("过滤字段         : {0}".format(self.__args.filCol))
+        LOG.debug("归档库名          : {0}".format(self.__args.db))
+        LOG.debug("归档表名          : {0}".format(self.__args.table))
+        LOG.debug("日期分区范围        : {0}".format(self.__args.dtRange))
         LOG.debug("机构字段位置        : {0}".format(self.__args.orgPos))
-        LOG.debug("分桶键             : {0}".format(self.__args.clusterCol))
-        LOG.debug("分桶数             : {0}".format(self.__args.bucketsNum))
-        LOG.debug("是否忽略错误行           : {0}".format(self.__args.ignoreErrLines))
+        LOG.debug("分桶键             : {0}".format(self.__args.cluCol))
+        LOG.debug("分桶数             : {0}".format(self.__args.buckNum))
+        LOG.debug("是否忽略错误行           : {0}".format(self.__args.igErr))
         LOG.debug("是否补记数据资产           : {0}".format(self.__args.asset))
 
         LOG.debug("----------------------------------------------")
@@ -144,28 +160,28 @@ class BatchArchiveInit(object):
         parser.add_argument("-obj", required=True, help="数据对象名")
         parser.add_argument("-org", required=True, help="机构")
 
-        parser.add_argument("-sourceDbName", required=True, help="源库名")
-        parser.add_argument("-sourceTableName", required=True, help="源表名")
-        parser.add_argument("-filterSql", required=False,
+        parser.add_argument("-sDb", required=True, help="源库名")
+        parser.add_argument("-sTable", required=True, help="源表名")
+        parser.add_argument("-filSql", required=False,
                             help="采集过滤SQL条件（WHERE 后面部分）")
-        parser.add_argument("-filterCol", required=False, help="过滤字段")
+        parser.add_argument("-filCol", required=False, help="过滤字段")
         parser.add_argument("-dateCol", required=True, help="日期字段")
-        parser.add_argument("-dateColFormat", required=True, help="日期字段格式")
-        parser.add_argument("-schemaID", required=True, help="取连接信息")
+        parser.add_argument("-dateFm", required=True, help="日期字段格式")
+        parser.add_argument("-schID", required=True, help="取连接信息")
         parser.add_argument("-proID", required=True, help="流程ID")
         parser.add_argument("-system", required=True, help="系统标识")
         parser.add_argument("-batch", required=True, help="批次号")
-        parser.add_argument("-dbName", required=True, help="归档库名")
-        parser.add_argument("-tableName", required=True, help="归档表名")
+        parser.add_argument("-db", required=True, help="归档库名")
+        parser.add_argument("-table", required=True, help="归档表名")
 
-        parser.add_argument("-dateRange", required=True,
+        parser.add_argument("-dtRange", required=True,
                             help="日期分区范围（N-不分区、M-月、Q-季、Y-年）")
         parser.add_argument("-orgPos", required=True,
                             help="机构字段位置（1-没有机构字段 "
                                  "2-字段在列中 3-字段在分区中）")
-        parser.add_argument("-clusterCol", required=True, help="分桶键")
-        parser.add_argument("-bucketsNum", required=True, help="分桶数")
-        parser.add_argument("-ignoreErrLines", required=False,
+        parser.add_argument("-cluCol", required=True, help="分桶键")
+        parser.add_argument("-buckNum", required=True, help="分桶数")
+        parser.add_argument("-igErr", required=False,
                             help="是否忽略错误行（0-否 1-是）")
         parser.add_argument("-asset", required=False, help="是否补记数据资产（0-否 1-是）")
         args = parser.parse_args()
@@ -175,7 +191,6 @@ class BatchArchiveInit(object):
         try:
             LOG.info("接入表结构解析，元数据登记 ")
             self.process_ddl()
-
             if not self.hive_util.exist_table(self.db_name, self.table_name):
                 LOG.info("创建归档表 ")
                 self.create_table()
@@ -187,6 +202,7 @@ class BatchArchiveInit(object):
             LOG.info("开始归档 ")
             self.load()
         except Exception as e:
+            traceback.print_exc()
             self.error_msg = str(e.message)
             self.pro_status = 0
         LOG.info("登记执行日志")
@@ -322,14 +338,16 @@ class BatchArchiveInit(object):
         date_dict = {}
         is_contain_error = False
         date = ""
-        hql = " select  from_unixtime(unix_timestamp(`{date_col}`,'{date_format}')," \
-              "'yyyyMMdd') as {col_date},count(1) from {source_db}.{source_table_name} " \
-              " group by from_unixtime(unix_timestamp(`{date_col}`,'{date_format}'),'yyyyMMdd')  " \
-              " order by {col_date} ".format(date_col=self.date_col,
-                                             date_format=self.date_format,
-                                             col_date=self.col_date,
-                                             source_db=self.source_db,
-                                             source_table_name=self.source_table_name)
+        hql = (
+            " select  from_unixtime(unix_timestamp(`{date_col}`,'{date_format}'),"
+            "'yyyyMMdd') as {col_date},count(1) "
+            "from {source_db}.{source_table_name} "
+            " group by from_unixtime(unix_timestamp(`{date_col}`,'{date_format}'),'yyyyMMdd')  "
+            " order by {col_date} ".format(date_col=self.date_col,
+                                           date_format=self.date_format,
+                                           col_date=self.col_date,
+                                           source_db=self.source_db,
+                                           source_table_name=self.source_table_name))
         LOG.debug("执行SQL {0}".format(hql))
         result = self.hive_util.execute_sql(hql)
         for x in result:
@@ -350,7 +368,7 @@ class BatchArchiveInit(object):
                 continue
             date_dict[date_str] = count
 
-        if not self.ignore_err_line and is_contain_error:
+        if self.ignore_err_line != 1 and is_contain_error:
             raise BizException("数据不合法。如需忽略错误行请调用时采用参数 -IGNORE_ERROR_LINES TRUE")
 
     def check_log(self):
@@ -359,16 +377,15 @@ class BatchArchiveInit(object):
         :return:
         """
         date = DateUtil.get_now_date_format("%Y%m%d")
-        run_log = self.mon_run_log_service.find_run_logs(self.table_name,
-                                                         self.obj,
-                                                         self.org,
-                                                         date,
-                                                         date
-                                                         )
+        run_log = self.mon_run_log_service.find_log_with_table(self.system,
+                                                               self.obj,
+                                                               self.table_name,
+                                                               self.org,
+                                                               "00000101",
+                                                               date
+                                                               )
         if run_log:
-            raise BizException("当日{0} 已有归档，不能做批量初始化".format(date))
-
-        pass
+            raise BizException("{0} 已有归档，不能做批量初始化".format(run_log.BIZ_DATE))
 
     def load(self):
         """
@@ -400,11 +417,11 @@ class BatchArchiveInit(object):
                 date_format=self.date_format)
             return {
                 DatePartitionRange.MONTH.value:
-                    " substr({time_str},1,6) as {partition_date_scope}".
+                    " substr({time_str},1,6) as {partition_date_scope},".
                         format(time_str=time_str,
                                partition_date_scope=self.partition_date_scope),
                 DatePartitionRange.YEAR.value:
-                    " substr({time_str},1,4) as {partition_date_scope}".
+                    " substr({time_str},1,4) as {partition_date_scope},".
                         format(time_str=time_str,
                                partition_date_scope=self.partition_date_scope),
                 DatePartitionRange.QUARTER_YEAR.value:
@@ -429,7 +446,7 @@ class BatchArchiveInit(object):
 
         hql = hql + switch_data_range(self.data_range)
         if self.org_pos == OrgPos.PARTITION.value:
-            hql = hql + " '{org}' as {partition_org}". \
+            hql = hql + " '{org}' as {partition_org},". \
                 format(org=self.org,
                        partition_org=self.partition_org)
         LOG.info("执行SQL:{0}".format(hql[:-1]))

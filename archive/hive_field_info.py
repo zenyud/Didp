@@ -54,8 +54,8 @@ class HiveFieldInfo(object):
     @property
     def col_scale(self):
         list = self.get_list()
-        if list:
-            if len(list) == 2:
+        if list and len(list) == 2:
+            if str(list[1]).isdigit():
                 return list[1]
         else:
             return None
@@ -70,9 +70,10 @@ class HiveFieldInfo(object):
 
     def get_full_type(self):
         if self.col_length and self.col_scale:
-            return str(self.data_type+"("+self.col_length+","+self.col_scale+")")
+            return str(
+                self.data_type + "(" + self.col_length + "," + self.col_scale + ")")
         elif self.col_length and not self.col_scale:
-            return str(self.data_type+"("+self.col_length+")")
+            return str(self.data_type + "(" + self.col_length + ")")
         else:
             return str(self.data_type)
 
@@ -110,12 +111,13 @@ class MetaTypeInfo(object):
         types = ["DECIMAL", "DOUBLE", "FLOAT"]
         if self.field_length > 0:
             if self.field_scale > 0:
-                return  self.field_type + "(" + str(self.field_length) + "," + \
-                        str(self.field_scale) + ")"
+                return self.field_type + "(" + str(self.field_length) + "," + \
+                       str(self.field_scale) + ")"
             else:
                 if self.field_type in types:
-                    return self.field_type + "(" + str(self.field_length) + "," +\
-                        str(self.field_scale) + ")"
+                    return self.field_type + "(" + str(
+                        self.field_length) + "," + \
+                           str(self.field_scale) + ")"
                 else:
                     return self.field_type + "(" + str(self.field_length) + ")"
 
@@ -149,7 +151,7 @@ class FieldState(object):
         # type: (object, object, object, MetaTypeInfo, MetaTypeInfo, object, object, object) -> FieldState
         self.col_name = col_name
         self.full_seq = full_seq  # 完整序号
-        self.current_seq = current_seq # 当前序号
+        self.current_seq = current_seq  # 当前序号
         self.ddl_type = ddl_type
         self.hive_type = hive_type
         self.comment_hive = comment_hive
@@ -158,6 +160,7 @@ class FieldState(object):
         #  字段状态序号
         self.hive_no = hive_no  # -1:预览空位 ; -2:hive 需新增字段
 
+
 if __name__ == '__main__':
-    a = HiveFieldInfo("aa","varchar(10)",None,None,None,"",1)
+    a = HiveFieldInfo("aa", "varchar(10)", None, None, None, "", 1)
     print a.get_full_type

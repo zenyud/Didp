@@ -383,11 +383,11 @@ class MonRunLogDao(object):
         """
         pass
 
-    def get_mon_run_log_list(self, table_name, obj, pros_type, org, start_date,
+    def get_mon_run_log_list(self, system, obj, pros_type, org, start_date,
                              end_date):
         """
             获取执行日志集合
-        :param table_name:  目标表
+        :param system:  系统名
         :param obj: 数据对象
         :param pros_type: 加工类型
         :param start_date: 执行日期
@@ -395,19 +395,47 @@ class MonRunLogDao(object):
         :return:
         """
         result = self.SESSION.query(DidpMonRunLog).filter(
-            DidpMonRunLog.TABLE_NAME == table_name,
+            DidpMonRunLog.SYSTEM_KEY == system,
             DidpMonRunLog.DATA_OBJECT_NAME == obj,
             DidpMonRunLog.BRANCH_NO == org,
             DidpMonRunLog.PROCESS_TYPE == pros_type,
             DidpMonRunLog.BIZ_DATE >= start_date,
             DidpMonRunLog.BIZ_DATE <= end_date,
-            DidpMonRunLog.PROCESS_STATUS == "1",  # 执行状态为成功
-            DidpMonRunLog.ERR_MESSAGE == ""  # 没有报错信息
+            DidpMonRunLog.PROCESS_STATUS == "1"  # 执行状态为成功
+
         ).all()
         if len(result) < 1:
             return None
         else:
             return result
+
+    def get_mon_run_log_with_table(self, system, obj, table, pros_type, org,
+                                   start_date, end_date):
+        """
+
+        :param system:
+        :param obj:
+        :param table:
+        :param pros_type:
+        :param org:
+        :param start_date:
+        :param end_date:
+        :return:
+        """
+        result = self.SESSION.query(DidpMonRunLog).filter(
+            DidpMonRunLog.SYSTEM_KEY == system,
+            DidpMonRunLog.DATA_OBJECT_NAME == obj,
+            DidpMonRunLog.TABLE_NAME == table,
+            DidpMonRunLog.BRANCH_NO == org,
+            DidpMonRunLog.PROCESS_TYPE == pros_type,
+            DidpMonRunLog.BIZ_DATE >= start_date,
+            DidpMonRunLog.BIZ_DATE <= end_date,
+            DidpMonRunLog.PROCESS_STATUS == "1"  # 执行状态为成功
+        ).all()
+        if len(result) < 1:
+            return None
+        else:
+            return result[0]
 
     def find_latest_all_archive(self, system, obj, org, biz_date):
         """
@@ -502,7 +530,5 @@ class MetaLockDao(object):
 
 
 if __name__ == '__main__':
-    a = MetaTableInfoHisDao.get_meta_table_info_by_detail(
-        "d5852c01c3fd44c6b8ad0bcab9ea0de5", "test_archive_chain",
-        "2019-01-01 00:00:00", "", "true")
-    print a
+    a = MonRunLogDao()
+
