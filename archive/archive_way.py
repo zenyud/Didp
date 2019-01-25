@@ -9,6 +9,7 @@ import abc
 import argparse
 import os
 import sys
+import traceback
 
 reload(sys)
 sys.setdefaultencoding('utf8')
@@ -97,6 +98,9 @@ class ArchiveData(object):
         self.source_db = self.__args.sDb  # 源库
         self.source_table = self.__args.sTable  # 源表
         self.pro_id = self.__args.proID  # 流程号
+        self.pro_info = ProcessDao(self.session).get_process_info(self.pro_id)
+        # 获取project_id
+        self.project_id = self.pro_info.PROJECT_VERSION_ID if self.pro_info else None
         self.save_mode = self.__args.saveMd  # 存储模式
         self.schema_id = self.__args.schID
         self.pk_list = self.__args.pkList  # 主键
@@ -104,7 +108,6 @@ class ArchiveData(object):
         self.add_table = self.__args.addTab  # 增量表表名
         self.all_range = self.__args.allRg  # 全量表日期分区范围
         self.add_range = self.__args.addRg  # 增量表日期分区范围
-
 
         self.__print_arguments()
 
@@ -190,7 +193,6 @@ class ArchiveData(object):
         return temp_db
 
     # 接入表DDL信息
-
 
     def init_common_dict(self):
         common_dict = CommonParamsDao(self.session).get_all_common_code()
@@ -364,12 +366,16 @@ class ArchiveData(object):
             return DateUtil.get_quarter(data_date)
 
     def org_check(self):
-        if self.hive_util.exist_table(self.__args.db,
-                                      self.__args.table):
-            if int(self.__args.orgPos) != self.hive_util.get_org_pos(
+        """
+            检查机构字段是否和源表一致
+        :return:
+        """
+        if self.hive_util.exist_table(self.db_name,
+                                      self.table_name):
+            if self.org_pos != self.hive_util.get_org_pos(
                     self.common_dict,
-                    self.__args.db,
-                    self.__args.table):
+                    self.db_name,
+                    self.table_name):
                 raise BizException("归档机构分区与hive表中不一致 !!!")
 
     def meta_lock(self):
@@ -427,7 +433,8 @@ class ArchiveData(object):
                                                 self.release_date,
                                                 self.__args.buckNum,
                                                 self.common_dict,
-                                                table_comment)
+                                                table_comment,
+                                                self.project_id)
 
     @abc.abstractmethod
     def create_table(self):
@@ -554,7 +561,7 @@ class ArchiveData(object):
             hive_type = MetaTypeInfo(hive_field.data_type,
                                      hive_field.col_length,
                                      hive_field.col_scale)
-
+            # 字段状态
             field_state = FieldState(hive_field.col_name.upper(),
                                      hive_field.col_seq,
                                      meta_current_no,
@@ -953,6 +960,34 @@ class ArchiveData(object):
         reject_count = 0
         if self.source_count != self.archive_count:
             reject_count = self.source_count - self.archive_count
+
+        old_log = self.mon_run_log_service.get_log(self.pro_id, self.data_date,
+                                                   self.org, self.batch)
+        LOG.debug("old_log :{0}".format(old_log))
+        if old_log:
+            # 需要删除 旧的日志
+            didp_mon_run_log_his = DidpMonRunLogHis(
+                PROCESS_ID=old_log.PROCESS_ID,
+                SYSTEM_KEY=old_log.SYSTEM_KEY,
+                BRANCH_NO=old_log.BRANCH_NO,
+                BIZ_DATE=old_log.BIZ_DATE,
+                BATCH_NO=old_log.BATCH_NO,
+                TABLE_NAME=old_log.TABLE_NAME,
+                DATA_OBJECT_NAME=old_log.DATA_OBJECT_NAME,
+                PROCESS_TYPE=old_log.PROCESS_TYPE,  # 加工类型
+                PROCESS_STARTTIME=old_log.PROCESS_STARTTIME,
+                PROCESS_ENDTIME=old_log.PROCESS_ENDTIME,
+                PROCESS_STATUS=old_log.PROCESS_STATUS,
+                INPUT_LINES=old_log.INPUT_LINES,
+                OUTPUT_LINES=old_log.OUTPUT_LINES,
+                REJECT_LINES=old_log.REJECT_LINES,
+                EXTENDED1=old_log.EXTENDED1,  # 记录归档类型
+                ERR_MESSAGE=old_log.ERR_MESSAGE)
+            self.mon_run_log_service.delete_log(self.pro_id, self.data_date,
+                                                self.org, self.batch)
+            # 写入历史表
+            self.mon_run_log_service.insert_log_his(didp_mon_run_log_his)
+
         didp_mon_run_log = DidpMonRunLog(PROCESS_ID=self.pro_id,
                                          SYSTEM_KEY=self.system,
                                          BRANCH_NO=self.org,
@@ -1020,75 +1055,78 @@ class ArchiveData(object):
         :return:
          1 - 成功 0 - 失败
         """
+        try:
+            LOG.info("------归档作业开始执行------")
+            self.pro_start_date = DateUtil.get_now_date_standy()  # 获取流程执行时间
+            LOG.info(" 判断是否有在进行的任务,并加锁 ")
+            self.lock()
 
-        LOG.info("------归档作业开始执行------")
-        self.pro_start_date = DateUtil.get_now_date_standy()  # 获取流程执行时间
-        LOG.info(" 判断是否有在进行的任务,并加锁 ")
-        self.lock()
+            LOG.info("日期分区字段检查 ")
+            self.data_partition_check()
 
-        LOG.info("日期分区字段检查 ")
-        self.data_partition_check()
+            LOG.info("机构字段字段检查")
+            self.org_check()
 
-        LOG.info("机构字段字段检查")
-        self.org_check()
+            LOG.info("参数初始化2 ")
+            self.init_ext()
+            LOG.info("元数据处理、表并发处理")
+            self.meta_lock()
 
-        LOG.info("参数初始化2 ")
-        self.init_ext()
-        LOG.info("元数据处理、表并发处理")
-        self.meta_lock()
+            LOG.info("元数据登记与更新")
+            self.upload_meta_data()
 
-        LOG.info("元数据登记与更新")
-        self.upload_meta_data()
+            if not self.hive_util.exist_table(self.__args.db,
+                                              self.__args.table):
+                self.create_table()
 
-        if not self.hive_util.exist_table(self.__args.db,
-                                          self.__args.table):
-            self.create_table()
+            LOG.debug("根据表定义变化信息更新表结构 ")
+            self.change_table_columns()
 
-        LOG.debug("根据表定义变化信息更新表结构 ")
-        self.change_table_columns()
+            LOG.info("元数据并发解锁")
+            self.meta_unlock()
+            LOG.info("源数据的数据量统计")
+            sql = ("SELECT COUNT(1) FROM {db_name}.{table_name}   ".
+                   format(db_name=self.__args.sDb,
+                          table_name=self.__args.sTable,
+                          ))
+            if self.filter_sql:
+                sql = sql + " where {0}".format(self.filter_sql)
+            LOG.debug("执行SQL:{0}".format(sql))
+            self.source_count = int(self.hive_util.execute_sql(sql)[0][0])
 
-        LOG.info("元数据并发解锁")
-        self.meta_unlock()
-        LOG.info("源数据的数据量统计")
-        sql = ("SELECT COUNT(1) FROM {db_name}.{table_name}   ".
-               format(db_name=self.__args.sDb,
-                      table_name=self.__args.sTable,
-                      ))
-        if self.filter_sql:
-            sql = sql + " where {0}".format(self.filter_sql)
-        LOG.debug("执行SQL:{0}".format(sql))
-        self.source_count = int(self.hive_util.execute_sql(sql)[0][0])
-
-        LOG.debug("接入元数据的数据条数为：{0}".format(self.source_count))
-        if self.source_count > 0:
-            #     # 原始数据不为空
-            LOG.info("数据载入")
-            try:
+            LOG.debug("接入元数据的数据条数为：{0}".format(self.source_count))
+            if self.source_count > 0:
+                #     # 原始数据不为空
+                LOG.info("数据载入")
                 self.load_data()
-            except Exception as e:
-                LOG.exception(e.message)
-                self.error_msg = str(e.message)
-                self.pro_status = "0"
-            LOG.info("统计入库条数")
-            if StringUtil.is_blank(self.error_msg):
-                self.archive_count = self.count_archive_data()
-            LOG.info("入库的条数为{0}".format(self.archive_count))
+                LOG.info("统计入库条数")
+                if StringUtil.is_blank(self.error_msg):
+                    self.archive_count = self.count_archive_data()
+                LOG.info("入库的条数为{0}".format(self.archive_count))
+
+            else:
+                LOG.debug("归档数据为空！ ")
+
+        except Exception as e:
+            traceback.print_exc()
+            self.error_msg = str(e.message)
+            self.pro_status = "0"
+        finally:
+
+            if self.lock_archive:
+                LOG.info("解除并发锁")
+                self.unlock()
+            if self.lock_meta:
+                self.meta_unlock()
+            LOG.info("登记执行日志")
             self.pro_end_date = DateUtil.get_now_date_standy()
-        else:
-            LOG.debug("归档数据为空！ ")
-        LOG.info("删除已经存在的数据资产！")
-        self.delete_exists_archive()
-        LOG.info("登记执行日志")
-        self.register_run_log()
-        self.is_already_load = True
-        LOG.info("解除并发锁")
-        LOG.info("归档完成 ! ")
-        self.unlock()
-        LOG.info("删除临时表")
-        self.clean()
-        if self.session:
-            self.session.close()  # 关闭连接
-        self.hive_util.close()
+            self.register_run_log()
+            self.is_already_load = True
+            LOG.info("删除临时表")
+            self.clean()
+            if self.session:
+                self.session.close()  # 关闭连接
+            self.hive_util.close()
 
     @abc.abstractmethod
     def init_ext(self):
@@ -1174,13 +1212,10 @@ class LastAddArchive(ArchiveData):
                                      "'transactional'='true')".
                                      format(CLUSTER_COL=self.cluster_col,
                                             BUCKET_NUM=self.buckets_num))
-        LOG.debug("建表语句为：%s " % execute_sql)
+        LOG.info("建表语句为：%s " % execute_sql)
         self.hive_util.execute(execute_sql)
 
     def load_data(self):
-        pre_table_name = (self.source_db + "." +
-                          self.source_table)
-        hql = ""
 
         # 清空表数据
         hql = "TRUNCATE TABLE {DB_NAME}.{TABLE_NAME}".format(
@@ -1202,14 +1237,14 @@ class LastAddArchive(ArchiveData):
                       data_date=self.data_date
                       ))
         if self.org_pos == OrgPos.COLUMN.value:
-            hql = hql + " '%s' ," % self.org
+            hql = hql + " '{0}' ,".format(self.org)
 
         # 构造字段的sql
         hql = hql + self.build_load_column_sql("", True)
         if not StringUtil.is_blank(self.filter_sql):
             # 如果有过滤条件,加入过滤条件
             hql = hql + " WHERE {filter_col}".format(filter_col=self.filter_sql)
-        LOG.debug("构造的hql是{0}".format(hql))
+        LOG.info("执行SQL ： {0}".format(hql))
         self.hive_util.execute(hql)
         self.archive_count = self.count_archive_data()
 
@@ -1224,19 +1259,16 @@ class LastAllArchive(ArchiveData):
 
     def __init__(self):
         super(LastAllArchive, self).__init__()
-        self.buildKeySqlOn = None
         self.print_save_mode()
 
     def clean(self):
         super(LastAllArchive, self).clean()
-        pass
 
     def register_run_log(self):
         super(LastAllArchive, self).register_run_log()
 
     def init_ext(self):
         # 判断是否存在主键信息
-
         if not self.pk_list or StringUtil.is_blank(self.pk_list):
             raise BizException("归档表{db_name}.{table_name}的主键不存在 ！".
                                format(db_name=self.db_name,
@@ -1292,9 +1324,8 @@ class LastAllArchive(ArchiveData):
                                      "'transactional'='true')".
                                      format(CLUSTER_COL=self.cluster_col,
                                             BUCKET_NUM=self.buckets_num))
-        LOG.debug("建表语句为：%s " % execute_sql)
+        LOG.info("建表语句为：%s " % execute_sql)
         self.hive_util.execute(execute_sql)
-        pass
 
     def load_data(self):
         # self.pre_table = self.temp_db + "." + self.input_table_name
@@ -1371,7 +1402,7 @@ class LastAllArchive(ArchiveData):
         if not StringUtil.is_blank(self.filter_sql):
             # 如果有过滤条件,加入过滤条件
             hql = hql + " WHERE {filter_col}".format(filter_col=self.filter_sql)
-        LOG.info("归档的SQL为:{0}".format(hql))
+        LOG.info("执行SQL :{0}".format(hql))
         self.hive_util.execute(hql)
 
     def load_data_all(self):
@@ -1407,8 +1438,6 @@ class AddArchive(ArchiveData):
     def print_save_mode(self):
         LOG.info("》》》》》》执行历史增量归档》》》》》")
 
-    all_table_name = None  # 全量历史表表名db_name.table_name
-    all_table_partition_range = None  # 全量历史表分区范围
     all_org_pos = None  # 全量历史表的机构位置
     # save_mode_list = None
     has_table_all = False  # 是否存在全量历史表
@@ -1434,21 +1463,18 @@ class AddArchive(ArchiveData):
         if self.source_data_mode == SourceDataMode.ALL.value:
             # 需要获取All_table_name
             if self.all_table:
-                self.all_table_name = self.all_table  # dbName.table_name
-                if self.all_range:
-                    self.all_table_partition_range = self.all_range
-                else:
+
+                if not self.all_range:
                     raise BizException("全量供数保存增量，全量存储策略日期分区范围参数不合法")
 
-                db_name, table_name = self.all_table_name.split(".")
-
-                self.has_table_all = self.hive_util.exist_table(db_name,
-                                                                table_name)
+                self.has_table_all = self.hive_util.exist_table(
+                    self.db_name_all,
+                    self.table_name_all)
                 if self.has_table_all:
                     self.all_org_pos = self.hive_util.get_org_pos(
                         self.common_dict,
-                        db_name,
-                        table_name)
+                        self.db_name_all,
+                        self.table_name_all)
 
     def count_archive_data(self):
         HQL = ("SELECT COUNT(1) FROM {DB_NAME}.{TABLE_NAME} WHERE {WHERE_SQL}".
@@ -1570,7 +1596,7 @@ class AddArchive(ArchiveData):
             self.schema_id, self.table_name)
         all_table_fields_infos = None
 
-        if self.all_table_name:
+        if self.all_table:
             all_table_fields_infos = self.hive_util.get_hive_meta_field(
                 self.common_dict,
                 self.db_name_all,
@@ -1595,9 +1621,12 @@ class AddArchive(ArchiveData):
 
         yes_day = DateUtil.get_day_of_day(self.data_date, -1)  # 前一天 str
         # 取得最近一次全量归档信息
-        lastest_all_archive = self.mon_run_log_service. \
-            find_latest_all_archive(self.system, self.obj,
-                                    self.org, yes_day)
+        lastest_all_archive = None  # 最近一次历史全量归档记录
+        if self.table_name_all:
+            # 查找最近一次全量归档记录
+            lastest_all_archive = self.mon_run_log_service. \
+                find_latest_all_archive(self.system, self.table_name_all,
+                                        self.org, yes_day)
 
         LOG.debug("是否存在全量记录 {0}".format(lastest_all_archive))
         has_yes_all_data = False  # 判断最近一次全量归档是否在昨日
@@ -1674,12 +1703,12 @@ class AddArchive(ArchiveData):
                                                          None,
                                                          False
                                                          ),
-                ALL_TABLE_NAME=self.all_table_name,
+                ALL_TABLE_NAME=self.all_table,
                 WHERE_SQL=self.create_where_sql(
                     "", yes_day,
-                    self.all_table_partition_range,
+                    self.all_range,
                     self.get_data_scope(
-                        self.all_table_partition_range,
+                        self.all_range,
                         yes_day),
                     self.all_org_pos,
                     self.org, None)
@@ -1718,14 +1747,14 @@ class AddArchive(ArchiveData):
                 sql = sql + ("{COLS} FROM {all_table_name} "
                              "WHERE {WHERE_SQL} UNION ALL  ".
                              format(COLS=build_cols,
-                                    all_table_name=self.all_table_name,
+                                    all_table_name=self.all_table,
                                     WHERE_SQL=self.
                                     create_where_sql(
                                         "",
                                         lastest_all_archive.BIZ_DATE,
-                                        self.all_table_partition_range,
+                                        self.all_range,
                                         self.get_data_scope(
-                                            self.all_table_partition_range,
+                                            self.all_range,
                                             yes_day),
                                         self.all_org_pos,
                                         self.org,
@@ -2018,7 +2047,7 @@ class AllArchive(ArchiveData):
         # 取最近一次全量归档的信息
         lastest_all_archive = (self.mon_run_log_service.
                                find_latest_all_archive(self.system,
-                                                       self.obj,
+                                                       self.table_name,
                                                        self.org, yes_day))
 
         # 判断最近一次归档是否在昨日
@@ -2164,7 +2193,8 @@ class AllArchive(ArchiveData):
                     hql = (hql + " and {partition_date_scope} "
                                  "<= '{date_scope1}' and "
                                  "{partition_date_scope} "
-                                 " >= '{date_scope2}' ".format(
+                                 " >= '{date_scope2}' ".
+                           format(
                         partition_date_scope=self.partition_data_scope,
                         date_scope1=self.date_scope,
                         date_scope2=date_scope
@@ -2256,7 +2286,7 @@ class ChainTransArchive(ArchiveData):
             LOG.debug(" 存在历史归档数据 ")
             if not self.check_run_log(self.data_date, self.data_date):
                 if not self.check_run_log(self.last_date, self.last_date):
-                    raise BizException("前一天没有做归档,不能做最近全量归档 ")
+                    raise BizException("前一天没有做归档,不能做全量拉链归档 ")
         else:
             self.source_data_mode = SourceDataMode.ADD.value
         LOG.info(
@@ -2336,6 +2366,8 @@ class ChainTransArchive(ArchiveData):
                      "'transactional'='true')".
                      format(clusterCol=self.cluster_col,
                             bucketsNum=self.buckets_num))
+
+        LOG.info("执行建表语句 {0}".format(hql))
         self.hive_util.execute(hql)
 
     def load_data(self):
@@ -2770,5 +2802,5 @@ class ChainTransArchive(ArchiveData):
 
 if __name__ == '__main__':
     a = AllArchive()
-    c = a.check_run_log("00000101","20180101")
+    c = a.check_run_log("00000101", "20180101")
     print c

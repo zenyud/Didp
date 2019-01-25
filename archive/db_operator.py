@@ -16,7 +16,7 @@ from archive.archive_enum import SaveMode
 from archive.model import *
 
 
-class CommonParamsDao():
+class CommonParamsDao(object):
     """
         操作公共代码类
     """
@@ -47,6 +47,23 @@ class CommonParamsDao():
             common_dict[r.PARAM_NAME] = r.PARAM_VALUE
 
         return common_dict
+
+
+class ProcessDao(object):
+    def __init__(self, session):
+        self.SESSION = session
+
+    def get_process_info(self, pro_id):
+        """
+            获取流程信息
+        :return:
+        """
+        result = self.SESSION.query(DidpProcessInfo). \
+            filter(DidpProcessInfo.PROCESS_ID == pro_id).all()
+        if len(result) > 0:
+            return result[0]
+        else:
+            return None
 
 
 class MetaColumnInfoDao(object):
@@ -381,7 +398,31 @@ class MonRunLogDao(object):
         :param batch_no: 批次号
         :return:
         """
-        pass
+        result = self.SESSION.query(DidpMonRunLog).filter(
+            DidpMonRunLog.PROCESS_ID == pro_id,
+            DidpMonRunLog.BIZ_DATE == biz_date,
+            DidpMonRunLog.BRANCH_NO == org,
+            DidpMonRunLog.BATCH_NO == batch_no).all()
+        if len(result) > 0:
+            return result[0]
+        else:
+            return None
+
+    def delete_mon_run_log(self, pro_id, biz_date, org, batch_no):
+        """
+            删除 执行日志
+        :param pro_id:
+        :param biz_date:
+        :param org:
+        :param batch_no:
+        :return:
+        """
+        self.SESSION.query(DidpMonRunLog).filter(
+            DidpMonRunLog.PROCESS_ID == pro_id,
+            DidpMonRunLog.BIZ_DATE == biz_date,
+            DidpMonRunLog.BRANCH_NO == org,
+            DidpMonRunLog.BATCH_NO == batch_no).delete()
+        self.SESSION.commit()
 
     def get_mon_run_log_list(self, system, obj, pros_type, org, start_date,
                              end_date):
@@ -437,18 +478,18 @@ class MonRunLogDao(object):
         else:
             return result[0]
 
-    def find_latest_all_archive(self, system, obj, org, biz_date):
+    def find_latest_all_archive(self, system, table_name, org, biz_date):
         """
             获取最近的全量归档
         :param system: 系统
-        :param obj:
+        :param table_name: 全量历史表表名
         :param org:
         :param biz_date:
         :return:
         """
         result = self.SESSION.query(DidpMonRunLog).filter(
             DidpMonRunLog.SYSTEM_KEY == system,
-            DidpMonRunLog.DATA_OBJECT_NAME == obj,
+            DidpMonRunLog.TABLE_NAME == table_name,
             DidpMonRunLog.BRANCH_NO == org,
             DidpMonRunLog.PROCESS_STATUS == '1',
             DidpMonRunLog.EXTENDED1 == str(SaveMode.ALL.value),
@@ -459,6 +500,15 @@ class MonRunLogDao(object):
             return result[0]
         else:
             return None
+
+
+class MonRunLogHisDao(object):
+    def __init__(self, session):
+        self.SESSION = session
+
+    def add_mon_run_log_his(self, mon_run_log_his):
+        self.SESSION.add(mon_run_log_his)
+        self.SESSION.commit()
 
 
 class ArchiveLockDao(object):
@@ -530,5 +580,4 @@ class MetaLockDao(object):
 
 
 if __name__ == '__main__':
-    a = MonRunLogDao()
-
+    pass

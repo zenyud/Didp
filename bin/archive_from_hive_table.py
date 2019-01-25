@@ -7,11 +7,10 @@
 import os
 import sys
 
-from archive.archive_way import *
-
 reload(sys)
 sys.setdefaultencoding('utf8')
 sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
+from archive.archive_way import *
 
 
 def main():
@@ -19,7 +18,7 @@ def main():
     # 判断归档模式 执行不同的实现类
     archive = None
 
-    save_mode = args.saveMode
+    save_mode = args.saveMd
     if save_mode == "1":
         archive = AllArchive()
     elif save_mode == "2":

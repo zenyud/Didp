@@ -2,7 +2,7 @@
 
 # Date Time     : 2019/1/9
 # Write By      : adtec(ZENGYU)
-# Function Desc :
+# Function Desc :  归档工具模块
 # History       : 2019/1/9  ZENGYU     Create
 # Remarks       :
 
@@ -33,6 +33,10 @@ def get_uuid():
 
 
 class BizException(Exception):
+    """
+     自定义异常
+    """
+
     def __init__(self, *args):
         self.args = args
 
@@ -40,15 +44,18 @@ class BizException(Exception):
 class DateUtil(object):
     @classmethod
     def get_day_of_day(cls, dayof, n=0):
-        '''''
-        获取给顶日期的 前N 天或后N 天数据
-        if n>=0,date is larger than today
-        if n<0,date is less than today
-        date format = "YYYYMMDD"
-        '''
+        """
+            获取给顶日期的 前N 天或后N 天数据
+            if n>=0,date is larger than today
+            if n<0,date is less than today
+            date format = "YYYYMMDD"
+        :param dayof: 给定日期
+        :param n: 增减日期天数
+        :return:
+        """
+
         a = datetime.datetime.strptime(dayof, "%Y%m%d")
-        result = None
-        if (n < 0):
+        if n < 0:
             n = abs(n)
             result = a - datetime.timedelta(n)
         else:
@@ -57,6 +64,9 @@ class DateUtil(object):
 
     @staticmethod
     def get_now_date():
+        """
+        :return:
+        """
         dt = datetime.datetime.now()
         return dt.strftime("%Y%m%d %H:%M:%S")
 
@@ -73,6 +83,7 @@ class DateUtil(object):
     @staticmethod
     def get_month_start(now_day):
         """
+            获取月初日期
         :param now_day: 当日日期String
         :return: 月初日期String
         """
@@ -85,15 +96,21 @@ class DateUtil(object):
 
     @staticmethod
     def get_month_end(now_day):
+        """
+            获取指定日期的月末日期
+        :param now_day:
+        :return:
+        """
         d = datetime.datetime.strptime(now_day, "%Y%m%d")
         year = d.year
         month = d.month
-        monthRange = calendar.monthrange(year, month)[1]
-        day_end = '%d%02d%02d' % (year, month, monthRange)
+        month_range = calendar.monthrange(year, month)[1]
+        day_end = '%d%02d%02d' % (year, month, month_range)
         return str(day_end)
 
     @staticmethod
     def get_year_start(now_day):
+
         d = datetime.datetime.strptime(now_day, "%Y%m%d")
         year = d.year
         return str(year) + "0101"
@@ -110,13 +127,13 @@ class DateUtil(object):
         d = datetime.datetime.strptime(now_day, "%Y%m%d")
         year = d.year
         month = d.month
-        if month > 0 and month < 4:
+        if 0 < month < 4:
             jd_begin = str(year) + '0101'
 
-        elif month > 3 and month < 7:
+        elif 3 < month < 7:
             jd_begin = str(year) + '0401'
 
-        elif month > 6 and month < 10:
+        elif 6 < month < 10:
             jd_begin = str(year) + '0701'
 
         else:
@@ -125,15 +142,20 @@ class DateUtil(object):
 
     @staticmethod
     def get_quarter_end(now_day):
+        """
+            获取指定日期的季末时间
+        :param now_day:
+        :return:
+        """
         d = datetime.datetime.strptime(now_day, "%Y%m%d")
         year = d.year
         month = d.month
 
-        if month > 0 and month < 4:
+        if 0 < month < 4:
             jd_end = str(year) + '0331'
-        elif month > 3 and month < 7:
+        elif 3 < month < 7:
             jd_end = str(year) + '0731'
-        elif month > 6 and month < 10:
+        elif 6 < month < 10:
             jd_end = str(year) + '0931'
         else:
             jd_end = str(year) + '1231'
@@ -144,11 +166,11 @@ class DateUtil(object):
         d = datetime.datetime.strptime(now_day, "%Y%m%d")
         year = d.year
         month = d.month
-        if month >= 1 and month <= 3:
+        if 1 <= month <= 3:
             quarter = str(year) + "Q1"
-        elif month >= 4 and month <= 6:
+        elif 4 <= month <= 6:
             quarter = str(year) + "Q2"
-        elif month >= 7 and month <= 9:
+        elif 7 <= month <= 9:
             quarter = str(year) + "Q3"
         else:
             quarter = str(year) + "Q4"
@@ -156,6 +178,10 @@ class DateUtil(object):
 
 
 class StringUtil(object):
+    """
+        字符操作工具类
+    """
+
     @staticmethod
     def is_blank(in_str):
         """
@@ -188,13 +214,17 @@ class StringUtil(object):
 
 
 class HiveUtil(object):
+    """
+        Hive 工具类
+    """
+
     def __init__(self, schema_id):
+        # 通过SCHEMA_ID 获取Hive的 连接信息
         self.login_info = get_db_login_info(schema_id)[1]
-        # self.db_oper=None
         self.db_oper = DbOperator(self.login_info["db_user"],
                                   self.login_info["db_pwd"], HIVE_CLASS,
                                   self.login_info["jdbc_url"], DRIVER_PATH)
-        self.db_oper.connect()
+        self.db_oper.connect()  # 建立连接
 
     def close(self):
         self.db_oper.close()
@@ -258,6 +288,12 @@ class HiveUtil(object):
         return key
 
     def get_table_descformatted(self, db_name, table_name):
+        """
+            获取表的详细描述
+        :param db_name:
+        :param table_name:
+        :return:
+        """
         sql1 = "use {database}".format(database=db_name)
         sql = "desc formatted {table}".format(table=table_name)
         self.db_oper.do(sql1)
@@ -265,6 +301,12 @@ class HiveUtil(object):
         return result
 
     def get_table_desc(self, db_name, table_name):
+        """
+                获取表的简单描述
+        :param db_name:
+        :param table_name:
+        :return:
+        """
         sql1 = "use {database}".format(database=db_name)
         sql = "desc {table}".format(table=table_name)
 
@@ -274,12 +316,22 @@ class HiveUtil(object):
         return result
 
     def execute_with_dynamic(self, sql):
+        """
+            开启动态分区
+        :param sql:
+        :return:
+        """
         sql1 = "set hive.exec.dynamic.partition=true"
 
         self.db_oper.do(sql1)
         self.db_oper.do(sql)
 
     def execute(self, sql):
+        """
+            执行无返回结果的SQL
+        :param sql:
+        :return:
+        """
         self.db_oper.do(sql)
 
     def execute_sql(self, sql):
@@ -332,6 +384,12 @@ class HiveUtil(object):
         return hive_meta_info_list
 
     def get_table_comment(self, db_name, table_name):
+        """
+            获取表的 备注
+        :param db_name:
+        :param table_name:
+        :return:
+        """
         desc_formmatted = self.get_table_descformatted(db_name,
                                                        table_name)
         result = ""
@@ -343,6 +401,16 @@ class HiveUtil(object):
 
     def compare(self, common_dict, db_name1, table1, db_name2, table2,
                 is_compare_comments):
+        """
+            表对比
+        :param common_dict:
+        :param db_name1:
+        :param table1:
+        :param db_name2:
+        :param table2:
+        :param is_compare_comments:
+        :return:
+        """
 
         meta1 = self.get_hive_meta_field(common_dict, db_name1, table1, False)
         meta2 = self.get_hive_meta_field(common_dict, db_name2, table2, False)
@@ -380,9 +448,5 @@ class HiveUtil(object):
 
 if __name__ == '__main__':
     hive_util = HiveUtil("d5852c01c3fd44c6b8ad0bcab9ea0de5")
-    # a = hive_util.get_table_descformatted("orc_test", "test_archive")
-    # print a
-    # a= hive_util.execute_sql("select * from orc_test.test_archive limit 10")
-    # for x in a :
-    #     print a
-    print hive_util.exist_table("orc_test","mysql_test_table006_init_init")
+
+    print hive_util.exist_table("orc_test", "mysql_test_table006_init_init")

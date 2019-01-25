@@ -9,7 +9,7 @@
 
 class HiveFieldInfo(object):
     """
-        Hive 表信息对象
+        Hive 字段信息
     """
 
     def __init__(self, col_name, data_type, default_value, not_null, unique,
@@ -79,6 +79,9 @@ class HiveFieldInfo(object):
 
 
 class MetaTypeInfo(object):
+    """
+       字段类型
+    """
     def __init__(self, field_type, field_length, field_scale):
         """
         :param field_type: 字段类型
@@ -146,16 +149,21 @@ class MetaTypeInfo(object):
 
 
 class FieldState(object):
+    """
+        字段的状态
+        标记当前字段的变更情况< 新增/删除/精度变化>
+    """
+
     def __init__(self, col_name, full_seq, current_seq, ddl_type, hive_type,
                  comment_hive, comment_ddl, hive_no):
         # type: (object, object, object, MetaTypeInfo, MetaTypeInfo, object, object, object) -> FieldState
         self.col_name = col_name
         self.full_seq = full_seq  # 完整序号
         self.current_seq = current_seq  # 当前序号
-        self.ddl_type = ddl_type
-        self.hive_type = hive_type
-        self.comment_hive = comment_hive
-        self.comment_ddl = comment_ddl
+        self.ddl_type = ddl_type  # 接入字段的数据类型
+        self.hive_type = hive_type  # hive字段数据类型
+        self.comment_hive = comment_hive  # hive的字段评论
+        self.comment_ddl = comment_ddl  # 接入的 字段评论
 
         #  字段状态序号
         self.hive_no = hive_no  # -1:预览空位 ; -2:hive 需新增字段

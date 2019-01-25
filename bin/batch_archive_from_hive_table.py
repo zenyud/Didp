@@ -19,12 +19,12 @@ sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from archive.db_operator import CommonParamsDao
+from archive.db_operator import CommonParamsDao, ProcessDao
 
 from archive.archive_enum import AddColumn, DatePartitionRange, OrgPos, \
     PartitionKey
 from archive.archive_util import HiveUtil, BizException, DateUtil, StringUtil
-from archive.model import DidpMonRunLog
+from archive.model import DidpMonRunLog, DidpMonRunLogHis
 from archive.service import MetaDataService, MonRunLogService
 
 from utils.didp_logger import Logger
@@ -78,7 +78,8 @@ class BatchArchiveInit(object):
             PartitionKey.DATE_SCOPE.value)  # 分区字段名
         self.date_col = self.__args.dateCol  # 日期字段
         self.date_format = self.__args.dateFm  # 日期字段格式
-        self.ignore_err_line = int(self.__args.igErr)  # 是否忽略错误行
+        self.ignore_err_line = int(
+            self.__args.igErr) if self.__args.igErr else 0  # 是否忽略错误行
 
         # 当日日期
         # %Y-%m-%d %H:%M:%S
@@ -89,6 +90,13 @@ class BatchArchiveInit(object):
         self.pro_status = 1  # 处理状态
         self.error_msg = None  # 错误信息
         self.system = self.__args.system
+        self.source_count = 0
+        self.archive_count = 0
+        self.reject_lines = 0
+        self.pro_info = ProcessDao(self.session).get_process_info(
+            self.__args.proID)
+        # 获取project_id
+        self.project_id = self.pro_info.PROJECT_VERSION_ID if self.pro_info else None
 
     @staticmethod
     def get_session():
@@ -201,44 +209,76 @@ class BatchArchiveInit(object):
             self.check_log()
             LOG.info("开始归档 ")
             self.load()
+
+            self.source_count = self.hive_util. \
+                execute_sql("select count(1) from {source_db}.{source_table}".
+                            format(source_db=self.source_db,
+                                   source_table=self.source_table_name))[0][0]
+            self.archive_count = self.hive_util. \
+                execute_sql("select count(1) from {db_name}.{table_name} ".
+                            format(db_name=self.db_name,
+                                   table_name=self.table_name))[0][0]
+            self.reject_lines = int(self.source_count) - int(self.archive_count)
         except Exception as e:
             traceback.print_exc()
             self.error_msg = str(e.message)
             self.pro_status = 0
-        LOG.info("登记执行日志")
-        data_date = DateUtil.get_now_date_format("%Y%m%d")
-        pro_end_date = DateUtil.get_now_date_standy()
-        source_count = self.hive_util. \
-            execute_sql("select count(1) from {source_db}.{source_table}".
-                        format(source_db=self.source_db,
-                               source_table=self.source_table_name))[0][0]
-        archive_count = self.hive_util. \
-            execute_sql("select count(1) from {db_name}.{table_name} ".
-                        format(db_name=self.db_name,
-                               table_name=self.table_name))[0][0]
-        reject_lines = int(source_count) - int(archive_count)
-        run_log = DidpMonRunLog(PROCESS_ID=self.__args.proID,
-                                SYSTEM_KEY=self.__args.system,
-                                BRANCH_NO=self.org,
-                                BIZ_DATE=data_date,
-                                BATCH_NO=self.__args.batch,
-                                TABLE_NAME=self.table_name,
-                                DATA_OBJECT_NAME=self.obj,
-                                PROCESS_TYPE="5",  # 加工类型
-                                PROCESS_STARTTIME=self.pro_start_date,
-                                PROCESS_ENDTIME=pro_end_date,
-                                PROCESS_STATUS=self.pro_status,
-                                INPUT_LINES=int(source_count),
-                                OUTPUT_LINES=int(archive_count),
-                                REJECT_LINES=reject_lines,
-                                EXTENDED1="init",  # 记录归档类型
-                                ERR_MESSAGE=self.error_msg
-                                )
-        self.mon_run_log_service.create_run_log(run_log)
+        finally:
+            LOG.info("登记执行日志")
+            data_date = DateUtil.get_now_date_format("%Y%m%d")
+            old_log = self.mon_run_log_service.get_log(self.__args.proID,
+                                                       data_date,
+                                                       self.org,
+                                                       self.__args.batch)
+            LOG.debug("old_log :{0}".format(old_log))
+            if old_log and self.pro_status == 1:
+                # 需要删除 旧的日志
+                didp_mon_run_log_his = DidpMonRunLogHis(
+                    PROCESS_ID=old_log.PROCESS_ID,
+                    SYSTEM_KEY=old_log.SYSTEM_KEY,
+                    BRANCH_NO=old_log.BRANCH_NO,
+                    BIZ_DATE=old_log.BIZ_DATE,
+                    BATCH_NO=old_log.BATCH_NO,
+                    TABLE_NAME=old_log.TABLE_NAME,
+                    DATA_OBJECT_NAME=old_log.DATA_OBJECT_NAME,
+                    PROCESS_TYPE=old_log.PROCESS_TYPE,  # 加工类型
+                    PROCESS_STARTTIME=old_log.PROCESS_STARTTIME,
+                    PROCESS_ENDTIME=old_log.PROCESS_ENDTIME,
+                    PROCESS_STATUS=old_log.PROCESS_STATUS,
+                    INPUT_LINES=old_log.INPUT_LINES,
+                    OUTPUT_LINES=old_log.OUTPUT_LINES,
+                    REJECT_LINES=old_log.REJECT_LINES,
+                    EXTENDED1=old_log.EXTENDED1,  # 记录归档类型
+                    ERR_MESSAGE=old_log.ERR_MESSAGE)
+                self.mon_run_log_service.delete_log(self.__args.proID,
+                                                    data_date,
+                                                    self.org, self.__args.batch)
+                # 写入历史表
+                self.mon_run_log_service.insert_log_his(didp_mon_run_log_his)
 
-        if self.session:
-            self.session.close()
-        self.hive_util.close()
+            pro_end_date = DateUtil.get_now_date_standy()
+            run_log = DidpMonRunLog(PROCESS_ID=self.__args.proID,
+                                    SYSTEM_KEY=self.__args.system,
+                                    BRANCH_NO=self.org,
+                                    BIZ_DATE=data_date,
+                                    BATCH_NO=self.__args.batch,
+                                    TABLE_NAME=self.table_name,
+                                    DATA_OBJECT_NAME=self.obj,
+                                    PROCESS_TYPE="5",  # 加工类型
+                                    PROCESS_STARTTIME=self.pro_start_date,
+                                    PROCESS_ENDTIME=pro_end_date,
+                                    PROCESS_STATUS=self.pro_status,
+                                    INPUT_LINES=int(self.source_count),
+                                    OUTPUT_LINES=int(self.archive_count),
+                                    REJECT_LINES=self.reject_lines,
+                                    EXTENDED1="init",  # 记录归档类型
+                                    ERR_MESSAGE=self.error_msg
+                                    )
+            self.mon_run_log_service.create_run_log(run_log)
+            # 关闭连接
+            if self.session:
+                self.session.close()
+            self.hive_util.close()
 
     def process_ddl(self):
         """
@@ -258,7 +298,8 @@ class BatchArchiveInit(object):
                                                 now_date,
                                                 self.bucket_num,
                                                 self.common_dict,
-                                                source_table_comment
+                                                source_table_comment,
+                                                self.project_id
                                                 )
 
     def create_table(self):

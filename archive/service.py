@@ -158,7 +158,6 @@ class MetaDataService(object):
         # type: (HiveUtil, str, str, str) -> list(HiveFieldInfo)
         """
             解析接入表表结构
-        :param schema_id:
         :param db_name:
         :param table_name:
         :param filter_cols: 过滤字段 逗号分割
@@ -191,12 +190,12 @@ class MetaDataService(object):
 
     def upload_meta_data(self, schema_id, db_name, source_ddl, table_name,
                          data_date, bucket_num,
-                         common_dict, source_table_comment):
-        # type: (str, str, str, str, str, str, dict,str) -> None
+                         common_dict, source_table_comment, project_id):
+        # type: (str, str, str, str, str, str, dict,str, str) -> None
 
         """
             登记元数据
-        :param filter_cols: 过滤字段
+
         :param schema_id:
         :param source_ddl: 源数据 ddl
         :param db_name: 目标库
@@ -205,6 +204,7 @@ class MetaDataService(object):
         :param bucket_num: 分桶数
         :param common_dict: 公共代码参数
         :param source_table_comment: 表备注
+        :param project_id
         :return: void
         """
         # 检查当日是否已经登记元数据
@@ -230,10 +230,13 @@ class MetaDataService(object):
             table_id = meta_table_info.TABLE_ID
             meta_field_info = self.meta_column_info_dao.get_meta_data_by_table(
                 table_id)  # 比较当日多个版本的 元数据
+
+            # 判断是否发生 表结构变更
             is_change = self.get_change_result(source_field_info,
                                                meta_field_info, common_dict)
+            LOG.info("表结构是否发生变化：{0}".format(is_change))
 
-            # 表备注是否发生变化
+            # 判断表备注是否发生变化
             table_comment_change = self.get_table_comment_change_result(
                 source_table_comment, meta_table_info.DESCRIPTION, common_dict)
             if not is_change and not table_comment_change:
@@ -244,14 +247,28 @@ class MetaDataService(object):
                 self.update_meta_info(table_id, schema_id, table_name,
                                       bucket_num,
                                       source_table_comment, data_date,
-                                      source_field_info, meta_field_info)
+                                      source_field_info, meta_field_info,
+                                      project_id)
         # 直接登记元数据
         else:
             self.register_meta_data(schema_id, source_field_info, table_name,
-                                    bucket_num, source_table_comment, data_date)
+                                    bucket_num, source_table_comment, data_date,
+                                    project_id)
 
     def register_meta_data(self, schema_id, source_field_info, table_name,
-                           bucket_num, source_table_comment, data_date):
+                           bucket_num, source_table_comment, data_date,
+                           project_id):
+        # type: (str, list(HiveFieldInfo), str, str, str, str, str) -> None
+        """
+            登记元数据信息
+        :param schema_id:
+        :param source_field_info: 接入字段信息
+        :param table_name: 归档表名
+        :param bucket_num: 分桶数
+        :param source_table_comment: 接入表备注
+        :param data_date: 数据日期
+        :param project_id:  项目ID
+        """
 
         # 当日未登记元数据 直接增加新 的元数据
         LOG.debug("---- 不存在元数据,登记新的元数据  ------ ")
@@ -260,6 +277,7 @@ class MetaDataService(object):
         new_meta_table_info = DidpMetaTableInfo(
             TABLE_ID=table_id,
             SCHEMA_ID=schema_id,
+            PROJECT_VERSION_ID=project_id,
             LAST_UPDATE_TIME=last_update_time,
             LAST_UPDATE_USER=LAST_UPDATE_USER,
             TABLE_NAME=table_name,
@@ -274,6 +292,7 @@ class MetaDataService(object):
         new_meta_table_info_his = DidpMetaTableInfoHis(
             TABLE_HIS_ID=table_his_id,
             TABLE_ID=table_id,
+            PROJECT_VERSION_ID=project_id,
             SCHEMA_ID=schema_id,
             LAST_UPDATE_TIME=last_update_time,
             LAST_UPDATE_USER=LAST_UPDATE_USER,
@@ -300,6 +319,7 @@ class MetaDataService(object):
             meta_field_info = DidpMetaColumnInfo(
                 COLUMN_ID=column_id,
                 TABLE_ID=table_id,
+                PROJECT_VERSION_ID=project_id,
                 LAST_UPDATE_TIME=last_update_time,
                 LAST_UPDATE_USER=LAST_UPDATE_USER,
                 COL_SEQ=filed.col_seq,
@@ -316,6 +336,7 @@ class MetaDataService(object):
             meta_field_info_his = DidpMetaColumnInfoHis(
                 TABLE_HIS_ID=table_his_id,
                 COLUMN_ID=column_id,
+                PROJECT_VERSION_ID=project_id,
                 TABLE_ID=table_id,
                 LAST_UPDATE_TIME=last_update_time,
                 LAST_UPDATE_USER=LAST_UPDATE_USER,
@@ -334,6 +355,12 @@ class MetaDataService(object):
         LOG.info("登记字段元数据成功 ！  ")
 
     def get_meta_table(self, schema_id, table_name):
+        """
+            获取表元数据信息
+        :param schema_id:
+        :param table_name: 表名
+        :return:
+        """
         return self.meta_table_info_dao.get_meta_table_info(schema_id,
                                                             table_name)
 
@@ -455,13 +482,29 @@ class MetaDataService(object):
 
     def update_meta_info(self, table_id, schema_id, table_name, bucket_num,
                          source_table_comment,
-                         data_date, source_field_info, meta_field_infos):
+                         data_date, source_field_info, meta_field_infos,
+                         project_id):
+        """
+            更新元数据信息  如果只是减少了字段 则不改变当前表结构，当前元数据不进行变更
+
+        :param table_id:  表Id
+        :param schema_id: schema_id
+        :param table_name:  表名
+        :param bucket_num:  分桶数
+        :param source_table_comment:
+        :param data_date: 业务日期
+        :param source_field_info:  接入数据字段信息
+        :param meta_field_infos:  元数据字段信息
+        :param project_id: 项目ID
+        :return:
+        """
         if not self.just_delete_col:
             # 如果不是只是减少了字段 就直接更新
             self.meta_table_info_dao.delete_meta_table_info(table_id)
             new_meta_table_info = DidpMetaTableInfo(
                 TABLE_ID=table_id,
                 SCHEMA_ID=schema_id,
+                PROJECT_VERSION_ID=project_id,
                 LAST_UPDATE_TIME=last_update_time,
                 LAST_UPDATE_USER=LAST_UPDATE_USER,
                 TABLE_NAME=table_name,
@@ -478,6 +521,7 @@ class MetaDataService(object):
             new_meta_table_info_his = DidpMetaTableInfoHis(
                 TABLE_HIS_ID=table_his_id,
                 TABLE_ID=table_id,
+                PROJECT_VERSION_ID=project_id,
                 SCHEMA_ID=schema_id,
                 LAST_UPDATE_TIME=last_update_time,
                 LAST_UPDATE_USER=LAST_UPDATE_USER,
@@ -501,6 +545,7 @@ class MetaDataService(object):
                     meta_field_info = DidpMetaColumnInfo(
                         COLUMN_ID=column_id,
                         TABLE_ID=table_id,
+                        PROJECT_VERSION_ID=project_id,
                         LAST_UPDATE_TIME=last_update_time,
                         LAST_UPDATE_USER=LAST_UPDATE_USER,
                         COL_SEQ=field.col_seq,
@@ -517,6 +562,7 @@ class MetaDataService(object):
                         TABLE_HIS_ID=table_his_id,
                         COLUMN_ID=column_id,
                         TABLE_ID=table_id,
+                        PROJECT_VERSION_ID=project_id,
                         LAST_UPDATE_TIME=last_update_time,
                         LAST_UPDATE_USER=LAST_UPDATE_USER,
                         COL_SEQ=field.col_seq,
@@ -553,6 +599,7 @@ class MetaDataService(object):
                         TABLE_HIS_ID=table_his_id,
                         COLUMN_ID=column_id,
                         TABLE_ID=table_id,
+                        PROJECT_VERSION_ID=project_id,
                         LAST_UPDATE_TIME=last_update_time,
                         LAST_UPDATE_USER=LAST_UPDATE_USER,
                         COL_SEQ=field.col_seq,
@@ -602,6 +649,7 @@ class MetaDataService(object):
 class MonRunLogService(object):
     def __init__(self, session):
         self.mon_run_log_dao = MonRunLogDao(session)
+        self.mon_run_log_his_dao = MonRunLogHisDao(session)
 
     def create_run_log(self, didp_mon_run_log):
         """
@@ -638,20 +686,50 @@ class MonRunLogService(object):
                                                                end_date
                                                                )
 
-    def find_latest_all_archive(self, system, obj, org, biz_date):
+    def find_latest_all_archive(self, system, table_name, org, biz_date):
         """
             查询最近的全量数据归档记录
         :param system: 系统
-        :param obj: 数据对象
+        :param table_name: 全量历史表表名
         :param org: 机构
         :param biz_date: 业务日期
         :return:
         """
 
-        return self.mon_run_log_dao.find_latest_all_archive(system, obj,
+        return self.mon_run_log_dao.find_latest_all_archive(system, table_name,
                                                             org,
                                                             biz_date)
 
+    def delete_log(self, pro_id, biz_date, org, batch_no):
+        """
+            删除日志
+        :param pro_id:
+        :param biz_date:
+        :param org:
+        :param batch_no:
+        :return:
+        """
+        self.mon_run_log_dao.delete_mon_run_log(pro_id, biz_date, org, batch_no)
+
+    def get_log(self, pro_id, biz_date, org, batch_no):
+        """
+            获取日志
+        :param pro_id:
+        :param biz_date:
+        :param org:
+        :param batch_no:
+        :return:
+        """
+        return self.mon_run_log_dao.get_mon_run_log(pro_id, biz_date, org, batch_no)
+
+    def insert_log_his(self, mon_run_log_his):
+        """
+            插入log his
+        :param mon_run_log_his:
+        :return:
+        """
+        self.mon_run_log_his_dao.add_mon_run_log_his(mon_run_log_his)
+
 
 if __name__ == '__main__':
-    print a
+    pass
