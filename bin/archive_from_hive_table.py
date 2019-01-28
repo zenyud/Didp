@@ -13,25 +13,25 @@ sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
 from archive.archive_way import *
 
 
+def get_archive_way(save_mode):
+    return {
+        "1": AllArchive,
+        "2": AddArchive,
+        "4": ChainTransArchive,
+        "5": LastAddArchive,
+        "6": LastAllArchive
+    }.get(save_mode)
+
+
 def main():
     args = ArchiveData.archive_init()
     # 判断归档模式 执行不同的实现类
-    archive = None
 
     save_mode = args.saveMd
-    if save_mode == "1":
-        archive = AllArchive()
-    elif save_mode == "2":
-        archive = AddArchive()
-    elif save_mode == "4":
-        archive = ChainTransArchive()
-    elif save_mode == "5":
-        archive = LastAddArchive()
-    elif save_mode == "6":
-        archive = LastAllArchive()
+    archive_class = get_archive_way(save_mode)
+    archive = archive_class()
     if archive:
         archive.run()
-
 
 if __name__ == '__main__':
     main()

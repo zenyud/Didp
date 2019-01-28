@@ -18,15 +18,12 @@ sys.path.append("{0}".format(os.environ["DIDP_HOME"]))
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
 from archive.db_operator import CommonParamsDao, ProcessDao
-
 from archive.archive_enum import AddColumn, DatePartitionRange, OrgPos, \
     PartitionKey
 from archive.archive_util import HiveUtil, BizException, DateUtil, StringUtil
 from archive.model import DidpMonRunLog, DidpMonRunLogHis
 from archive.service import MetaDataService, MonRunLogService
-
 from utils.didp_logger import Logger
 
 LOG = Logger()
@@ -78,7 +75,8 @@ class BatchArchiveInit(object):
             PartitionKey.DATE_SCOPE.value)  # 分区字段名
         self.date_col = self.__args.dateCol  # 日期字段
         self.date_format = self.__args.dateFm  # 日期字段格式
-        self.ignore_err_line = True if int(self.__args.igErr) == 1 else False  # 是否忽略错误行
+        self.ignore_err_line = True if int(
+            self.__args.igErr) == 1 else False  # 是否忽略错误行
 
         # 当日日期
         # %Y-%m-%d %H:%M:%S
@@ -183,7 +181,7 @@ class BatchArchiveInit(object):
 
         parser.add_argument("-dtRange", required=True,
                             help="日期分区范围（N-不分区、M-月、Q-季、Y-年）")
-        parser.add_argument("-orgPos", required=True,
+        parser.add_argument("-orgPos", required=True, type=int,
                             help="机构字段位置（1-没有机构字段 "
                                  "2-字段在列中 3-字段在分区中）")
         parser.add_argument("-cluCol", required=True, help="分桶键")
@@ -448,7 +446,6 @@ class BatchArchiveInit(object):
                     )
         if self.org_pos == OrgPos.COLUMN.value:
             hql = hql + " '{org}',".format(org=self.org)
-            pass
         hql = hql + self.build_load_column_sql(None, False) + ","
 
         def switch_data_range(data_range):
@@ -516,7 +513,6 @@ class BatchArchiveInit(object):
                                                     field.col_name,
                                                     field.data_type,
                                                     need_trim)
-
         return sql
 
     @staticmethod
