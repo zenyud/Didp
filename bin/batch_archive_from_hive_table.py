@@ -78,8 +78,7 @@ class BatchArchiveInit(object):
             PartitionKey.DATE_SCOPE.value)  # 分区字段名
         self.date_col = self.__args.dateCol  # 日期字段
         self.date_format = self.__args.dateFm  # 日期字段格式
-        self.ignore_err_line = int(
-            self.__args.igErr) if self.__args.igErr else 0  # 是否忽略错误行
+        self.ignore_err_line = True if int(self.__args.igErr) == 1 else False  # 是否忽略错误行
 
         # 当日日期
         # %Y-%m-%d %H:%M:%S
@@ -189,7 +188,7 @@ class BatchArchiveInit(object):
                                  "2-字段在列中 3-字段在分区中）")
         parser.add_argument("-cluCol", required=True, help="分桶键")
         parser.add_argument("-buckNum", required=True, help="分桶数")
-        parser.add_argument("-igErr", required=False,
+        parser.add_argument("-igErr", required=False, type=int,
                             help="是否忽略错误行（0-否 1-是）")
         parser.add_argument("-asset", required=False, help="是否补记数据资产（0-否 1-是）")
         args = parser.parse_args()
@@ -257,6 +256,7 @@ class BatchArchiveInit(object):
                 self.mon_run_log_service.insert_log_his(didp_mon_run_log_his)
 
             pro_end_date = DateUtil.get_now_date_standy()
+            LOG.info("归档条数：{0}".format(int(self.archive_count)))
             run_log = DidpMonRunLog(PROCESS_ID=self.__args.proID,
                                     SYSTEM_KEY=self.__args.system,
                                     BRANCH_NO=self.org,
@@ -307,7 +307,7 @@ class BatchArchiveInit(object):
             创建归档表
         :return:
         """
-        hql = "CREATE TABLE IF NOT EXISTS {db_name}.{table_name} (" \
+        hql = "CREATE TABLE IF NOT EXISTS {db_name}.{table_name} ( \n" \
               " {col_date} VARCHAR(10) ,". \
             format(db_name=self.db_name,
                    table_name=self.table_name,
@@ -335,14 +335,14 @@ class BatchArchiveInit(object):
                 col_org=self.partition_org)
         # 若存在分区字段
         if len(part_sql) > 0:
-            hql = hql + " PARTITIONED BY ( " + part_sql[:-1] + ")"
+            hql = hql + " PARTITIONED BY ( " + part_sql[:-1] + ") \n"
         # 分桶
-        hql = hql + "clustered by ({CLUSTER_COL}) into {BUCKET_NUM}" \
-                    " BUCKETS  STORED AS orc " \
-                    "tblproperties('orc.compress'='SNAPPY' ," \
-                    "'transactional'='true')". \
-            format(CLUSTER_COL=self.cluster_col,
-                   BUCKET_NUM=self.bucket_num)
+        hql = hql + ("clustered by ({CLUSTER_COL}) into {BUCKET_NUM} \n"
+                     " BUCKETS  STORED AS orc \n"
+                     "tblproperties('orc.compress'='SNAPPY' ,"
+                     "'transactional'='true')".
+                     format(CLUSTER_COL=self.cluster_col,
+                            BUCKET_NUM=self.bucket_num))
         LOG.info("执行SQL: {0}".format(hql))
         self.hive_util.execute(hql)
 
@@ -381,9 +381,9 @@ class BatchArchiveInit(object):
         date = ""
         hql = (
             " select  from_unixtime(unix_timestamp(`{date_col}`,'{date_format}'),"
-            "'yyyyMMdd') as {col_date},count(1) "
-            "from {source_db}.{source_table_name} "
-            " group by from_unixtime(unix_timestamp(`{date_col}`,'{date_format}'),'yyyyMMdd')  "
+            "'yyyyMMdd') as {col_date},count(1) \n"
+            "from {source_db}.{source_table_name} \n"
+            " group by from_unixtime(unix_timestamp(`{date_col}`,'{date_format}'),'yyyyMMdd') \n "
             " order by {col_date} ".format(date_col=self.date_col,
                                            date_format=self.date_format,
                                            col_date=self.col_date,
@@ -397,7 +397,7 @@ class BatchArchiveInit(object):
             LOG.debug("数据日期：{0}, 数据条数： {1}".format(date, count))
             try:
                 date = time.strptime(date_str, "%Y%m%d")
-            except Exception as  e:
+            except Exception as e:
                 LOG.debug("非法日期 ：{0}".format(date))
                 is_contain_error = True
                 continue
@@ -409,8 +409,8 @@ class BatchArchiveInit(object):
                 continue
             date_dict[date_str] = count
 
-        if self.ignore_err_line != 1 and is_contain_error:
-            raise BizException("数据不合法。如需忽略错误行请调用时采用参数 -IGNORE_ERROR_LINES TRUE")
+        if not self.ignore_err_line and is_contain_error:
+            raise BizException("数据不合法。如需忽略错误行请调用时采用参数 -igErr 1 ")
 
     def check_log(self):
         """
@@ -433,9 +433,9 @@ class BatchArchiveInit(object):
             加载数据
         :return:
         """
-        hql = " from {source_db}.{source_table} insert into  table " \
-              " {db_name}.{table_name} {partition} " \
-              " select from_unixtime(unix_timestamp(`{date_col}`,'{date_col_format}')," \
+        hql = " FROM {source_db}.{source_table} INSERT INTO  table \n" \
+              " {db_name}.{table_name} {partition} \n" \
+              " SELECT from_unixtime(unix_timestamp(`{date_col}`,'{date_col_format}')," \
               "'yyyyMMdd') as {col_date}, " \
             .format(source_db=self.source_db,
                     source_table=self.source_table_name,
@@ -452,6 +452,11 @@ class BatchArchiveInit(object):
         hql = hql + self.build_load_column_sql(None, False) + ","
 
         def switch_data_range(data_range):
+            """
+                通过日期分区范围 获取分区值
+            :param data_range:
+            :return:
+            """
             time_str = "from_unixtime(unix_timestamp(`{date_col}`," \
                        "'{date_format}'),'yyyyMMdd')".format(
                 date_col=self.date_col,
@@ -466,18 +471,18 @@ class BatchArchiveInit(object):
                         format(time_str=time_str,
                                partition_date_scope=self.partition_date_scope),
                 DatePartitionRange.QUARTER_YEAR.value:
-                    " (case  when substr({time_str},5,2)>=01 and "
-                    " substr({time_str},5,2) <=03 then "
-                    " concat(substr({time_str},1,4),'Q1') "
-                    "  when substr({time_str},5,2)>=04 and "
-                    " substr({time_str},5,2) <=06 then "
-                    " concat(substr({time_str},1,4),'Q2') "
-                    "  when substr({time_str},5,2)>=07 and "
-                    " substr({time_str},5,2) <=09 then "
-                    " concat(substr({time_str},1,4),'Q3') "
-                    " when substr({time_str},5,2)>=10 and "
-                    " substr({time_str},5,2) <=12 then "
-                    " concat(substr({time_str},1,4),'Q4') "
+                    " (CASE  WHEN substr({time_str},5,2)>=01 and \n"
+                    " substr({time_str},5,2) <=03 then  \n"
+                    " concat(substr({time_str},1,4),'Q1') \n"
+                    "  when substr({time_str},5,2)>=04 and \n"
+                    " substr({time_str},5,2) <=06 then \n"
+                    " concat(substr({time_str},1,4),'Q2') \n"
+                    "  when substr({time_str},5,2)>=07 and \n"
+                    " substr({time_str},5,2) <=09 then \n"
+                    " concat(substr({time_str},1,4),'Q3') \n"
+                    " when substr({time_str},5,2)>=10 and \n"
+                    " substr({time_str},5,2) <=12 then \n"
+                    " concat(substr({time_str},1,4),'Q4') \n"
                     " end ) as {partition_date_scope}  ,".
                         format(time_str=time_str,
                                partition_date_scope=self.partition_date_scope

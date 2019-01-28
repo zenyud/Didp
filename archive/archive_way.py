@@ -1111,6 +1111,7 @@ class ArchiveData(object):
             traceback.print_exc()
             self.error_msg = str(e.message)
             self.pro_status = "0"
+            LOG.error("归档失败")
         finally:
 
             if self.lock_archive:
@@ -1124,6 +1125,8 @@ class ArchiveData(object):
             self.is_already_load = True
             LOG.info("删除临时表")
             self.clean()
+            if self.pro_status == "1":
+                LOG.info("归档成功")
             if self.session:
                 self.session.close()  # 关闭连接
             self.hive_util.close()
