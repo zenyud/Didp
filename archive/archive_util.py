@@ -257,7 +257,6 @@ class HiveUtil(object):
         pri_key = common_dict.get(PartitionKey.DATE_SCOPE.value)
         flag = False
         for col in result:
-            print col[0]
             if StringUtil.eq_ignore(col[0], pri_key):
                 flag = True
                 break
@@ -337,7 +336,7 @@ class HiveUtil(object):
     def execute_sql(self, sql):
         """
         有返回结果
-        :param self:
+        :param sql:
         :return:
         """
         return self.db_oper.fetchall(sql)

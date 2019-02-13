@@ -156,7 +156,7 @@ class FieldState(object):
 
     def __init__(self, col_name, full_seq, current_seq, ddl_type, hive_type,
                  comment_hive, comment_ddl, hive_no):
-        # type: (object, object, object, MetaTypeInfo, MetaTypeInfo, object, object, object) -> FieldState
+        # type: (object, object, object, MetaTypeInfo,MetaTypeInfo, object, object, object) -> FieldState
         self.col_name = col_name
         self.full_seq = full_seq  # 完整序号
         self.current_seq = current_seq  # 当前序号

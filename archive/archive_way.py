@@ -25,25 +25,31 @@ from utils.didp_logger import Logger
 
 LOG = Logger()
 
+USER = os.environ["DIDP_CFG_DB_USER"]
+PASSWORD = os.environ["DIDP_CFG_DB_PWD"]
+DB_URL = os.environ["DIDP_CFG_DB_JDBC_URL"]
+PROCESS_TYPE = "5"  # 流程类型
+
 
 class ArchiveData(object):
+    """
+        归档基类
+    """
     __metaclass__ = ABCMeta
 
     """数据归档类
         args:参数
     """
 
-    lock_archive = False  # 归档锁
-    lock_meta = False  # 元数据锁
-    date_scope = ""
-    start_date = ""
-    end_date = ""
+    __lock_archive = False  # 归档锁
+    __lock_meta = False  # 元数据锁
+    date_scope = ""  # 数据日期范围
+    start_date = ""  # 开始日期
+    end_date = ""  # 结束日期
     field_change_list = None  # 变更字段列表
     field_type_change_list = None  # 变更字段类型列表
     source_count = 0  # 原始表数据量
     archive_count = 0  # 归档数据条数
-    data_asset_infos = None  # 当日的数据资产列表
-    PROCESS_TYPE = "5"
     pro_start_date = None  # 流程开始时间
     pro_end_date = None  # 流程结束时间
     pro_status = "1"  # 加工状态
@@ -55,7 +61,6 @@ class ArchiveData(object):
         self.__args = self.archive_init()
         self.session = self.get_session()  # 数据库连接对象
         self.hive_util = HiveUtil(self.__args.schID)
-        self.last_date = DateUtil.get_day_of_day(self.__args.dtDate, -1)
 
         self.common_dict = self.init_common_dict()  # 初始化公共参数
 
@@ -89,6 +94,7 @@ class ArchiveData(object):
 
         self.org = self.__args.org  # 机构
         self.data_date = self.__args.dtDate  # 数据日期
+        self.last_date = DateUtil.get_day_of_day(self.data_date, -1)  # 昨日日期
         self.buckets_num = self.__args.buckNum  # 分桶数
         self.cluster_col = self.__args.cluCol  # 分桶键
         self.source_data_mode = int(self.__args.sMode)  # 数据源模式
@@ -109,7 +115,7 @@ class ArchiveData(object):
         self.all_range = self.__args.allRg  # 全量表日期分区范围
         self.add_range = self.__args.addRg  # 增量表日期分区范围
 
-        self.__print_arguments()
+        self.__print_arguments()  # 打印参数信息
 
     @abc.abstractmethod
     def print_save_mode(self):
@@ -121,20 +127,16 @@ class ArchiveData(object):
          获取 sqlalchemy 的SESSION 会话
         :return:
         """
-
-        user = os.environ["DIDP_CFG_DB_USER"]
-        password = os.environ["DIDP_CFG_DB_PWD"]
-        db_url = os.environ["DIDP_CFG_DB_JDBC_URL"]
-        x = db_url.index("//")
-        y = db_url.index("?")
-        db_url = db_url[x + 2:y]
+        x = DB_URL.index("//")
+        y = DB_URL.index("?")
+        db_url = DB_URL[x + 2:y]
 
         # db_name = db_login_info['db_name']
 
-        engine_str = "mysql+mysqlconnector://{db_user}:{password}@{db_url}".format(
-            db_user=user, password=password,
-            db_url=db_url,
-        )
+        engine_str = ("mysql+mysqlconnector://{db_user}:{password}@{db_url}".
+                      format(db_user=USER, password=PASSWORD,
+                             db_url=db_url,
+                             ))
         engine = create_engine(engine_str)
         Session = sessionmaker(bind=engine)
         session = Session()
@@ -155,16 +157,16 @@ class ArchiveData(object):
     # 拉链临时表名
     @property
     def app_table_name1(self):
-        app_name = self.common_dict.get("archive.proc.temporary.table")
-        if StringUtil.is_blank(app_name):
-            app_name = self.table_name + "_hds_tmp"
+        __app_name = self.common_dict.get("archive.proc.temporary.table")
+        if StringUtil.is_blank(__app_name):
+            __app_name = self.table_name + "_hds_tmp"
         if self.org_pos != OrgPos.NONE.value:
-            app_name = app_name + "_" + self.org
+            __app_name = __app_name + "_" + self.org
 
-        app_name = app_name.replace("OBJ", self.obj)
-        app_name = app_name.replace("TABLE", self.table_name)
-        app_name = app_name + '_1'
-        return app_name
+        __app_name = (__app_name.replace("OBJ", self.obj).
+                      replace("TABLE", self.table_name) + '_1')
+
+        return __app_name
 
     # 是否删除临时表
 
@@ -192,9 +194,11 @@ class ArchiveData(object):
             return self.db_name
         return temp_db
 
-    # 接入表DDL信息
-
     def init_common_dict(self):
+        """
+            初始化公共参数字典
+        :return: 参数字典
+        """
         common_dict = CommonParamsDao(self.session).get_all_common_code()
         if len(common_dict) == 0:
             raise BizException("初始化公共代码失败！请检查数据库")
@@ -251,12 +255,12 @@ class ArchiveData(object):
         parser.add_argument("-obj", required=True, help="数据对象名")
         parser.add_argument("-org", required=True, help="机构")
         parser.add_argument("-sMode", required=True,
-                            help="源数据增全量（1-全量 2-增量）")
+                            help="源数据增全量(1-全量 2-增量)")
         parser.add_argument("-sDb", required=True, help="源库名")
         parser.add_argument("-sTable", required=True, help="源表名")
         parser.add_argument("-pkList", required=False, help="主键列表(`|`线分割)")
         parser.add_argument("-filSql", required=False,
-                            help="采集过滤SQL条件（WHERE 后面部分）")
+                            help="采集过滤SQL条件(WHERE 后面部分)")
         parser.add_argument("-filCol", required=False, help="过滤字段")
         parser.add_argument("-schID", required=True, help="取连接信息")
         parser.add_argument("-proID", required=True, help="流程ID")
@@ -265,10 +269,10 @@ class ArchiveData(object):
         parser.add_argument("-db", required=True, help="归档库名")
         parser.add_argument("-table", required=True, help="归档表名")
         parser.add_argument("-saveMd", required=True,
-                            help="归档方式（1-历史全量、2-历史增量、"
-                                 "4-拉链、5-最近一天增量、6-最近一天全量）")
+                            help="归档方式(1-历史全量、2-历史增量、"
+                                 "4-拉链、5-最近一天增量、6-最近一天全量)")
         parser.add_argument("-dtDate", required=True,
-                            help="数据日期（yyyymmdd）")
+                            help="数据日期(yyyymmdd)")
         parser.add_argument("-dtRange", required=True,
                             help="日期分区范围（N-不分区、M-月、Q-季、Y-年）")
         parser.add_argument("-orgPos", required=True,
@@ -277,17 +281,17 @@ class ArchiveData(object):
         parser.add_argument("-cluCol", required=True, help="分桶键")
         parser.add_argument("-buckNum", required=True, help="分桶数")
         parser.add_argument("-allTab", required=False,
-                            help="全量历史表名（当归档方式为历史增量，"
-                                 "且源数据为全量时传入），格式 dbname.tablename")
+                            help="全量历史表名（当归档方式为历史增量,"
+                                 "且源数据为全量时传入），格式 db.table")
         parser.add_argument("-addTab", required=False,
-                            help="增量历史表名（当归档方式为历史全量，"
-                                 "且源数据为增量时传入），格式 dbname.tablename")
+                            help="增量历史表名（当归档方式为历史全量,"
+                                 "且源数据为增量时传入），格式 db.table")
         parser.add_argument("-allRg", required=False,
                             help="全量历史表日期分区范围（当归档方式为历史增量，"
-                                 "且源数据为全量时传入）,格式同dataRange")
+                                 "且源数据为全量时传入）,格式同dtRange")
         parser.add_argument("-addRg", required=False,
                             help="增量历史表日期分区范围（当归档方式为历史全量，"
-                                 "且源数据为增量时传入）,格式同dataRange")
+                                 "且源数据为增量时传入）,格式同dtRange")
         args = parser.parse_args()
         return args
 
@@ -301,7 +305,7 @@ class ArchiveData(object):
             try:
                 self.hds_struct_control.archive_lock(self.__args.obj,
                                                      self.__args.org)
-                self.lock_archive = True
+                self.__lock_archive = True
             except Exception as e:
                 raise BizException(
                     "待归档表有另外正在归档的任务或后台数据库更新错，"
@@ -384,9 +388,9 @@ class ArchiveData(object):
         :return:
         """
         start_time = time.time()
-        self.lock_meta = False
+        self.__lock_meta = False
         self.meta_lock_do()
-        while not self.lock_meta:
+        while not self.__lock_meta:
             if time.time() - start_time > 60000:
                 raise BizException("元数据更新等待超时,请稍后再试！")
             try:
@@ -403,7 +407,7 @@ class ArchiveData(object):
                 self.hds_struct_control.meta_lock(self.__args.obj,
                                                   self.__args.org)
 
-                self.lock_meta = True
+                self.__lock_meta = True
             except Exception as e:
                 LOG.debug("元数据更新队列等待中 。。。 ")
 
@@ -412,10 +416,10 @@ class ArchiveData(object):
                    元数据锁解除
                :return:
                """
-        if self.lock_meta:
+        if self.__lock_meta:
             self.hds_struct_control.meta_unlock(self.__args.obj,
                                                 self.__args.org)
-            self.lock_meta = False
+            self.__lock_meta = False
 
     def upload_meta_data(self):
         """
@@ -635,7 +639,7 @@ class ArchiveData(object):
                                     meta_type_hive.field_scale <
                                     meta_type_ddl.field_scale):
                             LOG.debug(
-                                "字段{col_name}精度扩大 {hive_type} -->> {ddl_type} \n "
+                                "字段{col_name}精度扩大 {hive_type} -->> {ddl_type} \n"
                                 "修改表字段精度为 {ddl_type} ".format(
                                     col_name=field.col_name,
                                     hive_type=meta_type_hive.get_whole_type,
@@ -650,7 +654,7 @@ class ArchiveData(object):
                             old_type = meta_type_ddl.get_whole_type
                             meta_type_ddl.field_length = meta_type_hive.field_length
                             LOG.debug(
-                                "字段{col_name}精度扩大 {hive_type} -->> {ddl_type1} \n "
+                                "字段{col_name}精度扩大 {hive_type} -->> {ddl_type1} \n"
                                 "修改表字段精度为 {ddl_type2}".format(
                                     col_name=field.col_name,
                                     hive_type=meta_type_hive.get_whole_type,
@@ -664,7 +668,7 @@ class ArchiveData(object):
                             old_type = meta_type_ddl.get_whole_type
                             meta_type_ddl.field_scale = meta_type_hive.field_scale
                             LOG.debug("字段{col_name}精度扩大 "
-                                      "{hive_type} -->> {ddl_type1} \n "
+                                      "{hive_type} -->> {ddl_type1} \n"
                                       "修改表字段精度为 {ddl_type2}".
                                       format(col_name=field.col_name,
                                              hive_type=meta_type_hive.get_whole_type,
@@ -738,11 +742,11 @@ class ArchiveData(object):
                 format(data_scope_name=self.partition_data_scope,
                        date_scope=date_scope)
         if self.org_pos == OrgPos.PARTITION.value:
-            s = s + "{partition_key_name} = '{partition_key}' ,". \
-                format(partition_key_name=self.partition_org, partition_key=org
+            s = s + "{partition_col} = '{partition_value}' ,". \
+                format(partition_col=self.partition_org, partition_value=org
                        )
         if len(s) > 0:
-            result = "partition ({str})".format(str=s[:-1])
+            result = "PARTITION ({str})".format(str=s[:-1])
 
         return result
 
@@ -896,7 +900,6 @@ class ArchiveData(object):
         if field_change_list:
             # 如果有字段变化
             for field in field_change_list:
-                print field.col_name.upper()
                 if (field.col_name.upper() in base_col_names and
                             field.col_name.upper() in compare_col_names):
                     sql = sql + self.build_column(None, field.col_name,
@@ -948,8 +951,8 @@ class ArchiveData(object):
         :return:
         """
 
-    def delete_exists_archive(self):
-        pass
+    # def delete_exists_archive(self):
+    #     pass
 
     @abc.abstractmethod
     def register_run_log(self):
@@ -963,7 +966,7 @@ class ArchiveData(object):
 
         old_log = self.mon_run_log_service.get_log(self.pro_id, self.data_date,
                                                    self.org, self.batch)
-        LOG.debug("old_log :{0}".format(old_log))
+        # LOG.info("old_log :{0}".format(old_log))
         if old_log:
             # 需要删除 旧的日志
             didp_mon_run_log_his = DidpMonRunLogHis(
@@ -995,7 +998,7 @@ class ArchiveData(object):
                                          BATCH_NO=self.batch,
                                          TABLE_NAME=self.table_name,
                                          DATA_OBJECT_NAME=self.obj,
-                                         PROCESS_TYPE=self.PROCESS_TYPE,  # 加工类型
+                                         PROCESS_TYPE=PROCESS_TYPE,  # 加工类型
                                          PROCESS_STARTTIME=self.pro_start_date,
                                          PROCESS_ENDTIME=self.pro_end_date,
                                          PROCESS_STATUS=self.pro_status,
@@ -1094,18 +1097,18 @@ class ArchiveData(object):
             LOG.debug("执行SQL:{0}".format(sql))
             self.source_count = int(self.hive_util.execute_sql(sql)[0][0])
 
-            LOG.debug("接入元数据的数据条数为：{0}".format(self.source_count))
+            LOG.info("接入元数据的数据条数为：{0}".format(int(self.source_count)))
             if self.source_count > 0:
                 #     # 原始数据不为空
                 LOG.info("数据载入")
                 self.load_data()
                 LOG.info("统计入库条数")
-                if StringUtil.is_blank(self.error_msg):
-                    self.archive_count = self.count_archive_data()
-                LOG.info("入库的条数为{0}".format(self.archive_count))
+                self.archive_count = self.count_archive_data()
+                # LOG.info("入库的条数为{0}".format(self.archive_count))
 
             else:
-                LOG.debug("归档数据为空！ ")
+                LOG.error("待归档数据源为空！请检查装载是否正常")
+                raise BizException("待归档数据源为空！")
 
         except Exception as e:
             traceback.print_exc()
@@ -1114,10 +1117,10 @@ class ArchiveData(object):
             LOG.error("归档失败")
         finally:
 
-            if self.lock_archive:
+            if self.__lock_archive:
                 LOG.info("解除并发锁")
                 self.unlock()
-            if self.lock_meta:
+            if self.__lock_meta:
                 self.meta_unlock()
             LOG.info("登记执行日志")
             self.pro_end_date = DateUtil.get_now_date_standy()
@@ -1173,7 +1176,9 @@ class LastAddArchive(ArchiveData):
             db_name=self.source_db,
             table_name=self.source_table)
         r = self.hive_util.execute_sql(hql)
-        return int(r[0][0])
+        count = int(r[0][0])
+        LOG.info("最近一天增量的入库数据为：{0}".format(count))
+        return count
 
     def create_table(self):
         """
@@ -1224,12 +1229,13 @@ class LastAddArchive(ArchiveData):
         hql = "TRUNCATE TABLE {DB_NAME}.{TABLE_NAME}".format(
             DB_NAME=self.db_name,
             TABLE_NAME=self.table_name)
+        LOG.info("执行SQL 清空表数据 ：{0}".format(hql))
         self.hive_util.execute(hql)
         # 插入数据
 
-        hql = ("from {source_db_name}.{source_table_name} "
-               "insert into table {db_name}.{table_name} {partition_sql} "
-               " select '{data_date}',".
+        hql = ("FROM {source_db_name}.{source_table_name} \n"
+               "  INSERT INTO TABLE {db_name}.{table_name} {partition_sql} \n"
+               "  SELECT  '{data_date}',".
                format(source_db_name=self.source_db,
                       source_table_name=self.source_table,
                       db_name=self.db_name,
@@ -1246,10 +1252,11 @@ class LastAddArchive(ArchiveData):
         hql = hql + self.build_load_column_sql("", True)
         if not StringUtil.is_blank(self.filter_sql):
             # 如果有过滤条件,加入过滤条件
-            hql = hql + " WHERE {filter_col}".format(filter_col=self.filter_sql)
+            hql = hql + "\n  WHERE {filter_col}".format(
+                filter_col=self.filter_sql)
         LOG.info("执行SQL ： {0}".format(hql))
         self.hive_util.execute(hql)
-        self.archive_count = self.count_archive_data()
+        # self.archive_count = self.count_archive_data()
 
 
 class LastAllArchive(ArchiveData):
@@ -1295,12 +1302,20 @@ class LastAllArchive(ArchiveData):
             db_name=self.source_db,
             table_name=self.source_table)
         r = self.hive_util.execute_sql(hql)
-        return int(r[0][0])
+        count = int(r[0][0])
+        if self.source_data_mode == SourceDataMode.ADD.value:
+            LOG.info("----增量 -》 最近一天全量----- \n"
+                     "增量数据源数据条数：{0} \n"
+                     "增量求全量入库数据条数：{1}".format(self.source_count, count))
+
+        else:
+            LOG.info("全量 -》 全量 的入库数据为：{0}".format(count))
+        return count
 
     def create_table(self):
         col_date = self.col_date
-        execute_sql = ("CREATE TABLE IF NOT EXISTS "
-                       "{DB_NAME}.{TABLE_NAME} ( {COL_DATE} varchar(10), ".
+        execute_sql = ("CREATE TABLE IF NOT EXISTS \n"
+                       "  {DB_NAME}.{TABLE_NAME} ( {COL_DATE} varchar(10), ".
                        format(DB_NAME=self.db_name,
                               TABLE_NAME=self.table_name,
                               COL_DATE=col_date
@@ -1317,13 +1332,15 @@ class LastAllArchive(ArchiveData):
 
         if self.org_pos == OrgPos.PARTITION.value:
             # 机构字段在分区中
-            execute_sql = execute_sql + (" PARTITIONED BY ({org_col} string)".
-                                         format(org_col=self.partition_org))
+            execute_sql = execute_sql + (
+                "\n  PARTITIONED BY ({org_col} string) ".
+                    format(org_col=self.partition_org))
 
         # 默认全部为事务表
-        execute_sql = execute_sql + (" CLUSTERED  BY ({CLUSTER_COL}) "
-                                     "INTO {BUCKET_NUM} BUCKETS STORED AS ORC "
-                                     "tblproperties('orc.compress'='SNAPPY' ,"
+        execute_sql = execute_sql + ("\n  CLUSTERED  BY ({CLUSTER_COL}) "
+                                     "INTO {BUCKET_NUM} BUCKETS \n"
+                                     "  STORED AS ORC \n"
+                                     "  tblproperties('orc.compress'='SNAPPY' ,"
                                      "'transactional'='true')".
                                      format(CLUSTER_COL=self.cluster_col,
                                             BUCKET_NUM=self.buckets_num))
@@ -1342,8 +1359,8 @@ class LastAllArchive(ArchiveData):
 
     def load_data_add(self):
         LOG.info("删除日期为当天的数据")
-        hql = ("DELETE FROM {db_name}.{table_name} {partition_sql} "
-               " WHERE {col_date} = '{data_date}' ".
+        hql = ("DELETE FROM {db_name}.{table_name} {partition_sql} \n"
+               "  WHERE {col_date} = '{data_date}' ".
                format(db_name=self.db_name,
                       table_name=self.table_name,
                       partition_sql=self.create_partition_sql(self.data_range,
@@ -1353,16 +1370,16 @@ class LastAllArchive(ArchiveData):
                       data_date=self.data_date
                       ))
         if OrgPos.COLUMN.value == self.org_pos:
-            hql = hql + " and {col_org} = '{org}' ".format(
+            hql = hql + " AND {col_org} = '{org}' ".format(
                 col_org=self.col_org,
                 org=self.org)
         LOG.info("删除数据的SQL为 ：{0}".format(hql))
         self.hive_util.execute(hql)
         LOG.info("根据input表主键删除源表数据")
-        hql = ("DELETE FROM {db_name}.{table_name} {partition_sql} as A  "
-               " where {where_sql} and "
-               " exists (select 1 from {source_db}.{source_table} as B "
-               " where {build_key_sql_on} )"
+        hql = ("DELETE FROM {db_name}.{table_name} {partition_sql} as A  \n"
+               "  WHERE {where_sql} AND \n"
+               "  EXISTS (SELECT 1 FROM {source_db}.{source_table} as B \n"
+               "  WHERE {build_key_sql_on} ) "
                .format(db_name=self.db_name,
                        table_name=self.table_name,
                        partition_sql=self.create_partition_sql(
@@ -1386,9 +1403,9 @@ class LastAllArchive(ArchiveData):
         self.hive_util.execute(hql)
         # 插入数据
         LOG.debug("将数据插入归档表")
-        hql = ("FROM {source_db}.{source_table} "
-               " insert into {db_name}.{table_name}  "
-               " {partition_sql} select '{data_date}', ".
+        hql = ("FROM {source_db}.{source_table} \n"
+               "  INSERT INTO {db_name}.{table_name}  \n"
+               "  {partition_sql} SELECT '{data_date}', ".
                format(source_db=self.source_db,
                       source_table=self.source_table,
                       db_name=self.db_name,
@@ -1404,7 +1421,8 @@ class LastAllArchive(ArchiveData):
         hql = hql + self.build_load_column_sql(None, True)
         if not StringUtil.is_blank(self.filter_sql):
             # 如果有过滤条件,加入过滤条件
-            hql = hql + " WHERE {filter_col}".format(filter_col=self.filter_sql)
+            hql = hql + "\n  WHERE {filter_col}".format(
+                filter_col=self.filter_sql)
         LOG.info("执行SQL :{0}".format(hql))
         self.hive_util.execute(hql)
 
@@ -1415,9 +1433,9 @@ class LastAllArchive(ArchiveData):
             table_name=self.table_name))
 
         LOG.debug("将数据插入归档表")
-        hql = ("FROM {source_db}.{source_table} "
-               " insert into {db_name}.{table_name} "
-               " {partition_sql} select '{data_date}', ".
+        hql = ("FROM {source_db}.{source_table} \n"
+               "  INSERT INTO {db_name}.{table_name} \n"
+               "  {partition_sql} SELECT '{data_date}', ".
                format(source_db=self.source_db,
                       source_table=self.source_table,
                       db_name=self.db_name,
@@ -1433,18 +1451,23 @@ class LastAllArchive(ArchiveData):
         hql = hql + self.build_load_column_sql(None, True)
         if not StringUtil.is_blank(self.filter_sql):
             # 如果有过滤条件,加入过滤条件
-            hql = hql + " WHERE {filter_col}".format(filter_col=self.filter_sql)
+            hql = hql + "\n  WHERE {filter_col}".format(
+                filter_col=self.filter_sql)
+        LOG.info("执行SQL: {0}".format(hql))
         self.hive_util.execute(hql)
 
 
 class AddArchive(ArchiveData):
+    """
+        历史增量归档
+    """
+
     def print_save_mode(self):
         LOG.info("》》》》》》执行历史增量归档》》》》》")
 
     all_org_pos = None  # 全量历史表的机构位置
-    # save_mode_list = None
     has_table_all = False  # 是否存在全量历史表
-    is_drop_app_table = False
+    is_drop_app_table = False  # 是否删除临时表
 
     def __init__(self):
         super(AddArchive, self).__init__()
@@ -1491,12 +1514,19 @@ class AddArchive(ArchiveData):
                                                       None
                                                       )))
         x = self.hive_util.execute_sql(HQL)
-        return int(x[0][0])
+        count = int(x[0][0])
+        if self.source_data_mode == SourceDataMode.ALL.value:
+            LOG.info("-----全量数据源增量入库：-----\n"
+                     "全量数据条数：{0}"
+                     "全量求增量数据条数为：{1}".format(self.source_count, count))
+        else:
+            LOG.info("入库条数为：{0}".format(count))
+        return count
 
     def create_table(self):
 
-        hql = ("CREATE TABLE IF NOT EXISTS {db_name}.{table_name} ("
-               " {col_date} VARCHAR(10) ,".
+        hql = ("CREATE TABLE IF NOT EXISTS {db_name}.{table_name} ( \n"
+               "  {col_date} VARCHAR(10) ,".
                format(db_name=self.db_name,
                       table_name=self.table_name,
                       col_date=self.col_date
@@ -1521,11 +1551,11 @@ class AddArchive(ArchiveData):
                 col_org=self.partition_org)
         # 若存在分区字段
         if len(part_sql) > 0:
-            hql = hql + " PARTITIONED BY ( " + part_sql[:-1] + ")"
+            hql = hql + " PARTITIONED BY ( " + part_sql[:-1] + ") \n"
         # 分桶
-        hql = hql + ("clustered by ({CLUSTER_COL}) into {BUCKET_NUM}"
-                     " BUCKETS  STORED AS orc "
-                     "tblproperties('orc.compress'='SNAPPY' ,"
+        hql = hql + ("  clustered by ({CLUSTER_COL}) into {BUCKET_NUM} \n"
+                     "  BUCKETS  STORED AS orc \n"
+                     "  tblproperties('orc.compress'='SNAPPY' ,"
                      "'transactional'='true')".
                      format(CLUSTER_COL=self.cluster_col,
                             BUCKET_NUM=self.buckets_num))
@@ -1541,8 +1571,8 @@ class AddArchive(ArchiveData):
 
     def load_data(self):
         LOG.debug("先根据数据日期删除表中数据")
-        hql = ("DELETE FROM  {DB_NAME}.{TABLE_NAME} {PARTITION_SQL} "
-               " WHERE {WHERE_SQL} ".
+        hql = ("DELETE FROM  {DB_NAME}.{TABLE_NAME} {PARTITION_SQL} \n"
+               "  WHERE {WHERE_SQL} ".
                format(DB_NAME=self.db_name,
                       TABLE_NAME=self.table_name,
                       PARTITION_SQL=self.create_partition_sql(self.data_range,
@@ -1566,9 +1596,9 @@ class AddArchive(ArchiveData):
 
     def load_data1(self):
         LOG.debug("------------直接入库-------")
-        hql = ("FROM {source_db}.{source_table} "
-               "insert into {db_name}.{table_name} "
-               "{partition_sql} select '{data_date}', ".
+        hql = ("FROM {source_db}.{source_table} \n"
+               "  INSERT INTO {db_name}.{table_name} \n"
+               "  {partition_sql} SELECT '{data_date}', ".
                format(source_db=self.source_db,
                       source_table=self.source_table,
                       db_name=self.db_name,
@@ -1584,7 +1614,7 @@ class AddArchive(ArchiveData):
         hql = hql + self.build_load_column_sql(None, True)
         if not StringUtil.is_blank(self.filter_sql):
             # 如果有过滤条件,加入过滤条件
-            hql = hql + " WHERE {filter_col} ".format(
+            hql = hql + "\n  WHERE {filter_col} ".format(
                 filter_col=self.filter_sql)
         LOG.info("执行SQL : {0}".format(hql))
         self.hive_util.execute(hql)
@@ -1650,29 +1680,29 @@ class AddArchive(ArchiveData):
             self.drop_table(self.temp_db, self.app_table_name1)
 
             hql = ("CREATE TABLE {temp_db}.{app_name} "
-                   "like {db_name}.{table_name}".
+                   "  like {db_name}.{table_name}".
                    format(temp_db=self.temp_db,
                           db_name=self.db_name,
                           app_name=self.app_table_name1,
                           table_name=self.table_name))
 
         else:
-            hql = ("DELETE FROM  {temp_db}.{app_name} {partition_sql} "
-                   "where 1=1 ".format(temp_db=self.temp_db,
-                                       app_name=self.app_table_name1,
-                                       partition_sql=self.create_partition_sql(
-                                           self.data_range,
-                                           "0",
-                                           "0"
-                                       )))
+            hql = ("DELETE FROM  {temp_db}.{app_name} {partition_sql} \n"
+                   "  WHERE 1=1 ".format(temp_db=self.temp_db,
+                                         app_name=self.app_table_name1,
+                                         partition_sql=self.create_partition_sql(
+                                             self.data_range,
+                                             "0",
+                                             "0"
+                                         )))
         LOG.info("执行SQL:{0}".format(hql))
         self.hive_util.execute(hql)
         if self.is_drop_tmp_table:
             self.is_drop_app_table = True
         # 入临时表语句构建
-        hql = ("FROM {SOURCE_DB}.{SOURCE_TABLE} INSERT INTO TABLE "
-               "{TEMP_DB}.{APP_TABLE} {PARTITION} "
-               "SELECT '{DATA_DATE}', ".
+        hql = ("FROM {SOURCE_DB}.{SOURCE_TABLE} INSERT INTO TABLE \n"
+               "  {TEMP_DB}.{APP_TABLE} {PARTITION} \n"
+               "  SELECT '{DATA_DATE}', ".
                format(SOURCE_DB=self.source_db,
                       SOURCE_TABLE=self.source_table,
                       TEMP_DB=self.temp_db,
@@ -1690,16 +1720,16 @@ class AddArchive(ArchiveData):
         LOG.info("执行SQL :{0}".format(hql))
         self.hive_util.execute(hql)
 
-        sql = ("FROM {TEMP_DB}.{APP_TABLE} hds_temp_table "
-               "FULL OUTER JOIN  ( ".format(TEMP_DB=self.temp_db,
-                                            APP_TABLE=self.app_table_name1))
+        sql = ("FROM {TEMP_DB}.{APP_TABLE} hds_temp_table \n"
+               "  FULL OUTER JOIN  ( \n".format(TEMP_DB=self.temp_db,
+                                                APP_TABLE=self.app_table_name1))
         if has_yes_all_data:
             # 对比2分全量数据 得出增量数据
-            sql = sql + "SELECT {col_date},".format(col_date=self.col_date)
+            sql = sql + "  SELECT {col_date},".format(col_date=self.col_date)
             # if self.all_org_pos == OrgPos.COLUMN.value:
             #     sql = sql + "{col_org}, ".format(col_org=self.col_org)
             # LOG.debug("全量表的 机构字段位置是： {0}".format(self.all_org_pos))
-            sql = sql + (" {cols}  FROM {ALL_TABLE_NAME} WHERE {WHERE_SQL} ".
+            sql = sql + (" {cols}  FROM {ALL_TABLE_NAME} WHERE {WHERE_SQL} \n".
                 format(
                 cols=self.build_load_column_with_compare(all_table_fields_infos,
                                                          hive_field_infos,
@@ -1719,8 +1749,8 @@ class AddArchive(ArchiveData):
 
         else:
             # 手动生成全量数据
-            sql = sql + (" SELECT * FROM (SELECT *,row_number() "
-                         "over(distribute by ")
+            sql = sql + ("  SELECT * FROM (SELECT *,row_number() \n"
+                         "  OVER(DISTRIBUTE BY \n")
             # 按主键分组
             for key in key_dict:
                 if str(key_dict.get(key)).lower() in ["string", "varchar",
@@ -1731,8 +1761,8 @@ class AddArchive(ArchiveData):
             sql = sql[:-1]
 
             #  按日期倒序、自定义分区顺序（全量分区-增量/减量分区-初始化分区）排序
-            sql = sql + (" SORT BY  {COL_DATE} DESC ) "
-                         " AS hds_section_rn FROM ( ".format
+            sql = sql + ("  SORT BY  {COL_DATE} DESC ) \n"
+                         "  AS hds_section_rn FROM ( \n".format
                          (COL_DATE=self.col_date))
             # 定位需扫描的分区及自定义分区顺序
 
@@ -1839,7 +1869,7 @@ class AddArchive(ArchiveData):
         if self.org_pos == OrgPos.COLUMN.value:
             sql = sql + " '{org}', ".format(org=self.org)
         sql = sql + self.build_load_column_sql("hds_temp_table",
-                                               False) + " where "
+                                               False) + "\n WHERE "
         where_sql = ""
         for field in self.source_ddl:
             if field.col_name.upper() not in pk_list:
@@ -1909,14 +1939,21 @@ class AllArchive(ArchiveData):
                                                       None)))
         LOG.info("执行SQL：{0}".format(HQL))
         x = self.hive_util.execute_sql(HQL)
-        return int(x[0][0])
+        count = int(x[0][0])
+        if self.source_data_mode == SourceDataMode.ADD.value:
+            LOG.info("----- 增量数据源全量入库：----- \n"
+                     "增量数据源条数：{0} \n"
+                     "增量求全量数据条数：{1}".format(self.source_count, count))
+        else:
+            LOG.info("全量数据入库条数：{0}".format(count))
+        return count
 
     def create_table(self):
-        hql = (" CREATE TABLE IF NOT EXISTS {DB_NAME}.{TABLE_NAME} ( "
-               " {COL_DATE} VARCHAR(10) ".format(DB_NAME=self.db_name,
-                                                 TABLE_NAME=self.table_name,
-                                                 COL_DATE=self.col_date
-                                                 ))
+        hql = (" CREATE TABLE IF NOT EXISTS {DB_NAME}.{TABLE_NAME} ( \n"
+               "  {COL_DATE} VARCHAR(10) ".format(DB_NAME=self.db_name,
+                                                  TABLE_NAME=self.table_name,
+                                                  COL_DATE=self.col_date
+                                                  ))
         if self.org_pos == OrgPos.COLUMN.value:
             hql = hql + ",{COL_ORG} VARCHAR(10) ".format(COL_ORG=self.col_org)
 
@@ -1939,11 +1976,11 @@ class AllArchive(ArchiveData):
             tmp_sql = tmp_sql + "{partion_org} string,".format(
                 partion_org=self.partition_org)
         if tmp_sql.__len__() > 0:
-            hql = hql + (" PARTITIONED BY ( {partition} ) ".
+            hql = hql + (" PARTITIONED BY ( {partition} ) \n".
                          format(partition=tmp_sql[:-1]))
-        hql = hql + (" clustered by ({CLUSTER_COL}) into {BUCKET_NUM} "
-                     " BUCKETS  STORED AS orc "
-                     " tblproperties('orc.compress'='SNAPPY',"
+        hql = hql + ("  CLUSTERED BY ({CLUSTER_COL}) INTO {BUCKET_NUM} \n"
+                     "  BUCKETS  STORED AS orc \n"
+                     "  tblproperties('orc.compress'='SNAPPY',"
                      "'transactional'='true')".
                      format(CLUSTER_COL=self.cluster_col,
                             BUCKET_NUM=self.buckets_num))
@@ -1955,8 +1992,8 @@ class AllArchive(ArchiveData):
 
     def load_data(self):
         #  先根据数据日期删除表中数据
-        hql = ("DELETE FROM {DB_NAME}.{TABLE_NAME} {PARTITION} "
-               " WHERE {WHERE_SQL} ".
+        hql = ("DELETE FROM {DB_NAME}.{TABLE_NAME} {PARTITION} \n"
+               "  WHERE {WHERE_SQL} \n".
                format(DB_NAME=self.db_name,
                       TABLE_NAME=self.table_name,
                       PARTITION=self.create_partition_sql(self.data_range,
@@ -1986,9 +2023,9 @@ class AllArchive(ArchiveData):
          直接入库
         :return:
         """
-        hql = (" FROM {SOURCE_DB}.{SOURCE_TABEL_NAME} INSERT INTO TABLE "
-               " {DB_NAME}.{TABLE_NAME} {PARTITION} "
-               " SELECT '{DATA_DATE}',".
+        hql = (" FROM {SOURCE_DB}.{SOURCE_TABEL_NAME} INSERT INTO TABLE \n"
+               "  {DB_NAME}.{TABLE_NAME} {PARTITION} \n"
+               "  SELECT '{DATA_DATE}',".
                format(SOURCE_DB=self.source_db,
                       SOURCE_TABEL_NAME=self.source_table,
                       DB_NAME=self.db_name,
@@ -2004,7 +2041,8 @@ class AllArchive(ArchiveData):
 
         if not StringUtil.is_blank(self.filter_sql):
             # 如果有过滤条件,加入过滤条件
-            hql = hql + " WHERE {filter_col}".format(filter_col=self.filter_sql)
+            hql = hql + "\n  WHERE {filter_col}".format(
+                filter_col=self.filter_sql)
         LOG.info("执行SQL: {0}".format(hql))
         self.hive_util.execute(hql)
 
@@ -2070,31 +2108,31 @@ class AllArchive(ArchiveData):
                                            self.app_table_name1, False)):
             self.drop_table(self.temp_db, self.app_table_name1)
 
-            hql = ("CREATE TABLE {temp_db}.{app_name} "
-                   "like {db_name}.{table_name}".
+            hql = ("CREATE TABLE {temp_db}.{app_name} \n"
+                   "  LIKE {db_name}.{table_name}".
                    format(temp_db=self.temp_db,
                           db_name=self.db_name,
                           app_name=self.app_table_name1,
                           table_name=self.table_name))
 
         else:
-            hql = ("DELETE FROM  {temp_db}.{app_name} {partition_sql} "
-                   "where 1=1 ".format(temp_db=self.temp_db,
-                                       app_name=self.app_table_name1,
-                                       partition_sql=self.create_partition_sql(
-                                           self.data_range,
-                                           "0",
-                                           "0"
-                                       )))
+            hql = ("DELETE FROM  {temp_db}.{app_name} {partition_sql} \n"
+                   "  WHERE 1=1 ".format(temp_db=self.temp_db,
+                                         app_name=self.app_table_name1,
+                                         partition_sql=self.create_partition_sql(
+                                             self.data_range,
+                                             "0",
+                                             "0"
+                                         )))
 
         LOG.info("执行SQL:{0}".format(hql))
         self.hive_util.execute(hql)
         if self.is_drop_tmp_table:
             self.is_drop_app_table = True
         # 入临时表SQL
-        hql = ("FROM {SOURCE_DB}.{SOURCE_TABLE} INSERT INTO TABLE "
-               "{TEMP_DB}.{APP_TABLE} {PARTITION} "
-               "SELECT '{DATA_DATE}', ".
+        hql = ("FROM {SOURCE_DB}.{SOURCE_TABLE} INSERT INTO TABLE \n"
+               "  {TEMP_DB}.{APP_TABLE} {PARTITION} \n"
+               "  SELECT '{DATA_DATE}', ".
                format(SOURCE_DB=self.source_db,
                       SOURCE_TABLE=self.source_table,
                       TEMP_DB=self.temp_db,
@@ -2108,32 +2146,33 @@ class AllArchive(ArchiveData):
         hql = hql + self.build_load_column_sql(None, True)
         if not StringUtil.is_blank(self.filter_sql):
             # 如果有过滤条件,加入过滤条件
-            hql = hql + " WHERE {filter_col}".format(filter_col=self.filter_sql)
+            hql = hql + "\n  WHERE {filter_col}".format(
+                filter_col=self.filter_sql)
 
         LOG.info("执行SQL :{0}".format(hql))
         self.hive_util.execute(hql)
 
-        hql = " FROM ( SELECT *, row_number() over (distribute by  "
+        hql = "  FROM ( SELECT *, row_number() over (DISTRIBUTE BY  \n"
         # 按主键分组
         for key in key_dict:
             if str(key_dict.get(key)).lower() in ["string", "varchar",
                                                   "char"]:
-                hql = hql + " trim({key}),".format(key=key)
+                hql = hql + "  trim({key}),".format(key=key)
             else:
                 hql = hql + key + ","
 
         hql = hql[:-1]
         # 按日期倒序、自定义分区顺序（全量分区-增量/减量分区-初始化分区）排序
-        hql = hql + (" SORT BY {COL_DATE} DESC ) as hds_section_rn FROM (  ".
+        hql = hql + ("  SORT BY {COL_DATE} DESC ) as hds_section_rn FROM (  \n".
                      format(COL_DATE=self.col_date))
 
         if lastest_all_archive:
-            hql = hql + "SELECT {COL_DATE},".format(COL_DATE=self.col_date)
+            hql = hql + "  SELECT {COL_DATE},".format(COL_DATE=self.col_date)
             # if self.org_pos == OrgPos.COLUMN.value:
             #     hql = hql + "{0},".format(self.col_org)
-            hql = hql + ("{COLS} FROM {DB_NAME}.{TABLE_NAME} "
-                         "WHERE {WHERE_SQL} "
-                         "UNION ALL ".
+            hql = hql + ("{COLS} FROM {DB_NAME}.{TABLE_NAME} \n"
+                         "  WHERE {WHERE_SQL} \n"
+                         "  UNION ALL \n".
                          format(COLS=self.build_load_column_sql(None, False),
                                 DB_NAME=self.db_name,
                                 TABLE_NAME=self.table_name,
@@ -2147,22 +2186,22 @@ class AllArchive(ArchiveData):
                                                                 )
                                 ))
         # 当日增量
-        hql = hql + " SELECT {COL_DATE},".format(COL_DATE=self.col_date)
+        hql = hql + "  SELECT {COL_DATE},".format(COL_DATE=self.col_date)
         # if self.org_pos == OrgPos.COLUMN.value:
         #     hql = hql + "{0},".format(self.col_org)
-        hql = hql + ("{COLS} FROM {TEMP_DB}.{APP_TABLE} ".
+        hql = hql + ("  {COLS} FROM {TEMP_DB}.{APP_TABLE} \n".
                      format(COLS=self.build_load_column_sql(None, False),
                             TEMP_DB=self.temp_db,
                             APP_TABLE=self.app_table_name1))
         # 往日增量
         if self.table_add and not has_yes_full_data:
 
-            hql = hql + (" UNION ALL "
-                         "SELECT {COL_DATE},".format(COL_DATE=self.col_date))
+            hql = hql + ("  UNION ALL \n"
+                         "  SELECT {COL_DATE},".format(COL_DATE=self.col_date))
             # if self.org_pos_add == OrgPos.COLUMN.value:
             #     hql = hql + " '{0}',".format(self.col_org)
-            hql = hql + ("{COLS} FROM {TABLE_ADD} "
-                         " WHERE {COL_DATE} < '{DATA_DATE}' ".
+            hql = hql + ("{COLS} FROM {TABLE_ADD} \n"
+                         "  WHERE {COL_DATE} < '{DATA_DATE}' \n".
                          format(COL_DATE=self.col_date,
                                 COLS=self.build_load_column_with_compare(
                                     add_table_field_infos,
@@ -2172,7 +2211,7 @@ class AllArchive(ArchiveData):
                                 DATA_DATE=self.data_date))
             if lastest_all_archive:
                 # 有全量数据
-                hql = hql + (" AND {COL_DATE} > '{ALL_DATE}' ".
+                hql = hql + ("  AND {COL_DATE} > '{ALL_DATE}' \n".
                              format(COL_DATE=self.col_date,
                                     ALL_DATE=lastest_all_archive.BIZ_DATE))
                 # 拼接分区范围
@@ -2193,7 +2232,7 @@ class AllArchive(ArchiveData):
                     date_scope = str(lastest_all_archive.BIZ_DATE)[0:4]
 
                 if date_scope:
-                    hql = (hql + " and {partition_date_scope} "
+                    hql = (hql + "  AND {partition_date_scope} "
                                  "<= '{date_scope1}' and "
                                  "{partition_date_scope} "
                                  " >= '{date_scope2}' ".
@@ -2210,13 +2249,13 @@ class AllArchive(ArchiveData):
                     col_org = self.partition_org
 
                 if col_org:
-                    hql = hql + " and {0} = '{1}' ".format(col_org,
-                                                           self.org)
+                    hql = hql + "  AND {0} = '{1}' ".format(col_org,
+                                                            self.org)
 
-        hql = hql + (") hds_section_t1 "
-                     ") hds_section_t2 "
-                     " insert into table {db_name}.{table_name} "
-                     " {partition} select '{data_date}',".
+        hql = hql + ("  ) hds_section_t1 \n"
+                     "  ) hds_section_t2 \n"
+                     "  INSERT INTO TABLE {db_name}.{table_name} \n"
+                     "  {partition} SELECT '{data_date}',".
                      format(db_name=self.db_name,
                             table_name=self.table_name,
                             partition=self.create_partition_sql(self.data_range,
@@ -2229,7 +2268,7 @@ class AllArchive(ArchiveData):
             hql = hql + " '{org}', ".format(org=self.org)
 
         hql = hql + self.build_load_column_sql(None, False) \
-              + " WHERE hds_section_rn=1"
+              + "\n  WHERE hds_section_rn=1"
         LOG.info("执行SQL:{0} ".format(hql))
         self.hive_util.execute(hql)
 
@@ -2339,11 +2378,13 @@ class ChainTransArchive(ArchiveData):
             db_name=self.source_db,
             table_name=self.source_table)
         r = self.hive_util.execute_sql(hql)
-        return int(r[0][0])
+        count = int(r[0][0])
+        LOG.info("入库条数为：{0}".format(count))
+        return count
 
     def create_table(self):
         hql = ("CREATE TABLE IF NOT EXISTS {db_name}.{table_name} "
-               " ({chain_sdate} varchar(10),{chain_edate} varchar(10), ".
+               "  ({chain_sdate} varchar(10),{chain_edate} varchar(10), ".
                format(db_name=self.db_name,
                       table_name=self.table_name,
                       chain_sdate=self.chain_sdate,
@@ -2390,8 +2431,9 @@ class ChainTransArchive(ArchiveData):
 
         # 更新闭链区的数据
         # 避免重复
-        hql = ("UPDATE  {db_name}.{table_name} {partition_sql} set "
-               "{chain_edate} = '{chain_open_date}' where "
+        hql = ("UPDATE  {db_name}.{table_name} {partition_sql} \n"
+               "  SET {chain_edate} = '{chain_open_date}'  \n"
+               "  WHERE \n"
                .format(db_name=self.db_name,
                        table_name=self.table_name,
                        partition_sql=self.create_partition_sql(
@@ -2404,7 +2446,7 @@ class ChainTransArchive(ArchiveData):
 
                        ))
         if self.org_pos == OrgPos.COLUMN.value:
-            hql = hql + "{col_org} = '{org}' and ".format(
+            hql = hql + "{col_org} = '{org}' AND \n".format(
                 col_org=self.col_org,
                 org=self.org
             )
@@ -2414,16 +2456,16 @@ class ChainTransArchive(ArchiveData):
 
         LOG.debug("先删除开区间当天的数据开链日期 ")
         # 避免与当日数据重复
-        hql = ("DELETE FROM {db_name}.{table_name} {partition_sql} "
-               " where ".format(db_name=self.db_name,
-                                table_name=self.table_name,
-                                partition_sql=self.create_partition_sql(
-                                    self.data_range,
-                                    self.date_scope,
-                                    self.org
-                                )))
+        hql = ("DELETE FROM {db_name}.{table_name} {partition_sql} \n"
+               "  WHERE ".format(db_name=self.db_name,
+                                 table_name=self.table_name,
+                                 partition_sql=self.create_partition_sql(
+                                     self.data_range,
+                                     self.date_scope,
+                                     self.org
+                                 )))
         if self.org_pos == OrgPos.COLUMN.value:
-            hql = hql + "{col_org} = '{org}' and ".format(
+            hql = hql + " {col_org} = '{org}' AND ".format(
                 col_org=self.col_org,
                 org=self.org
             )
@@ -2440,44 +2482,45 @@ class ChainTransArchive(ArchiveData):
                                            self.app_table_name1, False)):
             # drop 表
             self.drop_table(self.temp_db, self.app_table_name1)
-            hql = ("CREATE TABLE {temp_db}.{app_name} "
-                   "like {db_name}.{table_name}".
+            hql = ("CREATE TABLE {temp_db}.{app_name} \n"
+                   "  LIKE {db_name}.{table_name}".
                    format(temp_db=self.temp_db,
                           db_name=self.db_name,
                           app_name=self.app_table_name1,
                           table_name=self.table_name))
 
         else:
-            hql = ("DELETE FROM  {temp_db}.{app_name} {partition_sql} "
-                   " where 1=1 ".format(temp_db=self.temp_db,
-                                        app_name=self.app_table_name1,
-                                        partition_sql=self.create_partition_sql(
-                                            self.data_range,
-                                            "0",
-                                            "0"
-                                        )))
+            hql = ("DELETE FROM  {temp_db}.{app_name} {partition_sql} \n"
+                   "  WHERE 1=1 ".format(temp_db=self.temp_db,
+                                         app_name=self.app_table_name1,
+                                         partition_sql=self.create_partition_sql(
+                                             self.data_range,
+                                             "0",
+                                             "0"
+                                         )))
         LOG.info("执行SQL {0}".format(hql))
         self.hive_util.execute(hql)
         if self.is_drop_tmp_table:
             self.is_drop_table1 = True
 
         LOG.debug("1、通过主键关联将变化量插入临时分区")
-        hql = ("INSERT INTO TABLE  {temp_db}.{app_table_name} {partition_sql} "
-               "SELECT A.{chain_sdate},'{data_date}',"
-               .format(temp_db=self.temp_db,
-                       app_table_name=self.app_table_name1,
-                       partition_sql=self.create_partition_sql(self.data_range,
-                                                               self.date_scope,
-                                                               self.org),
-                       chain_sdate=self.chain_sdate,
-                       data_date=self.data_date
-                       ))
+        hql = (
+            "INSERT INTO TABLE  {temp_db}.{app_table_name} {partition_sql} \n"
+            "  SELECT A.{chain_sdate},'{data_date}',"
+                .format(temp_db=self.temp_db,
+                        app_table_name=self.app_table_name1,
+                        partition_sql=self.create_partition_sql(self.data_range,
+                                                                self.date_scope,
+                                                                self.org),
+                        chain_sdate=self.chain_sdate,
+                        data_date=self.data_date
+                        ))
         if self.org_pos == OrgPos.COLUMN.value:
             hql = hql + "'{org}' ,".format(org=self.org)
         # 往日改变量
-        hql1 = (" (SELECT * FROM {db_name}.{table_name} WHERE "
-                "{where_sql}  and {chain_edate} = '{chain_open_date}' ) A  "
-                "LEFT JOIN  {source_db}.{source_table} B ON ( "
+        hql1 = (" (SELECT * FROM {db_name}.{table_name} WHERE \n"
+                "  {where_sql}  and {chain_edate} = '{chain_open_date}' ) A  \n"
+                "  LEFT JOIN  {source_db}.{source_table} B ON ( \n"
                 .format(db_name=self.db_name,
                         table_name=self.table_name,
                         where_sql=self.create_where_sql(None, None,
@@ -2492,12 +2535,14 @@ class ChainTransArchive(ArchiveData):
                         source_db=self.source_db,
                         source_table=self.source_table
                         ))
-        hql = hql + self.build_load_column_sql("A", False) + "FROM " + hql1
+        hql = hql + self.build_load_column_sql("A", False) + " \n FROM " + hql1
 
         # 主键关联
         hql = hql + self.build_key_sql_on("A", "B", self.pk_list) + (
-            ") WHERE CONCAT_WS('|',{col1}) != CONCAT_WS('|',{col2}) "
-            " UNION ALL SELECT '{data_date}','{CHAIN_OPENDATE}',"
+            ") \n"
+            "  WHERE CONCAT_WS('|',{col1}) != CONCAT_WS('|',{col2}) \n"
+            "  UNION ALL  \n"
+            "  SELECT '{data_date}','{CHAIN_OPENDATE}',"
                 .format(col1=self.build_sql_column_with_not_compare("A"),
                         col2=self.build_sql_column_with_not_compare("B"),
                         data_date=self.data_date,
@@ -2506,12 +2551,13 @@ class ChainTransArchive(ArchiveData):
             hql = hql + "'{0}',".format(self.org)
         # 当日新增量
         hql = (hql + self.build_load_column_sql("A", False)
-               + "FROM "
-                 "{source_db}.{source_table_name} A "
-                 "LEFT JOIN (SELECT * FROM {db_name}.{table_name} "
-                 "WHERE {where_sql} and {chain_edate} ='{chain_open_date}' ) B "
-                 "ON  ({on_key}) "
-                 " WHERE  CONCAT_WS('|',{col1}) != CONCAT_WS('|',{col2}) "
+               + "\n FROM "
+                 "  {source_db}.{source_table_name} A \n"
+                 "  LEFT JOIN (SELECT * FROM {db_name}.{table_name} \n"
+                 "  WHERE {where_sql} \n"
+                 "  AND {chain_edate} ='{chain_open_date}' ) B \n"
+                 "  ON  ({on_key}) \n"
+                 "  WHERE  CONCAT_WS('|',{col1}) != CONCAT_WS('|',{col2}) "
                .format(
             source_db=self.source_db,
             source_table_name=self.source_table,
@@ -2536,11 +2582,12 @@ class ChainTransArchive(ArchiveData):
 
         LOG.debug("2、通过临时表主键（闭链为当天）删除正式表闭链时间99991231中数据")
         # 删除旧数据
-        hql = ("DELETE FROM {db_name}.{table_name} {partition_sql} AS A "
-               " WHERE {where_sql} AND EXISTS "
-               "(SELECT * FROM {temp_db}.{app_table} AS B "
-               " WHERE {key_list} AND {chain_edate} ='{data_date}' ) "
-               "AND {chain_edate} = '{chain_open_date}' "
+        hql = ("DELETE FROM {db_name}.{table_name} {partition_sql} AS A \n"
+               "  WHERE {where_sql} \n"
+               "  AND EXISTS \n"
+               "  (SELECT * FROM {temp_db}.{app_table} AS B \n"
+               "   WHERE {key_list} AND {chain_edate} ='{data_date}' ) \n"
+               "   AND {chain_edate} = '{chain_open_date}' "
                .format(db_name=self.db_name,
                        table_name=self.table_name,
                        partition_sql=self.create_partition_sql(
@@ -2567,8 +2614,8 @@ class ChainTransArchive(ArchiveData):
         self.hive_util.execute(hql)
 
         LOG.debug("3、临时分区数据插入插入正式分区")
-        hql = ("INSERT INTO TABLE  {db_name}.{table_name} {partition_sql} "
-               " select {chain_sdate},{chain_edate},".
+        hql = ("INSERT INTO TABLE  {db_name}.{table_name} {partition_sql} \n"
+               "  SELECT {chain_sdate},{chain_edate}, ".
                format(db_name=self.db_name,
                       table_name=self.table_name,
                       partition_sql=self.create_partition_sql(self.data_range,
@@ -2579,12 +2626,14 @@ class ChainTransArchive(ArchiveData):
                       ))
         if self.org_pos == OrgPos.COLUMN.value:
             hql = hql + "'{0}', ".format(self.org)
-        hql = (hql + self.build_load_column_sql(None, False) +
-               "FROM {temp_db}.{app_table}".format(temp_db=self.temp_db,
-                                                   app_table=self.app_table_name1))
+        hql = (hql + self.build_load_column_sql(None, False) + "\n" +
+               "  FROM {temp_db}.{app_table}".format(temp_db=self.temp_db,
+                                                     app_table=self.app_table_name1))
         if not StringUtil.is_blank(self.filter_sql):
             # 如果有过滤条件,加入过滤条件
-            hql = hql + " WHERE {filter_col}".format(filter_col=self.filter_sql)
+            hql = hql + "\n" \
+                        "  WHERE {filter_col}".format(
+                filter_col=self.filter_sql)
         LOG.info("执行SQL: {0}".format(hql))
         self.hive_util.execute(hql)
         LOG.debug("----------------拉链表归档完成--------------")
@@ -2592,8 +2641,10 @@ class ChainTransArchive(ArchiveData):
     def load_data_trans_add(self):
         LOG.debug("----------------拉链表归档--------------")
         LOG.debug("更新当天闭链区的数据为99991231")
-        hql = ("UPDATE {db_name}.{table_name} {partition_sql} "
-               "SET {chain_edate} = '{chain_open_date}' WHERE ".
+        #  把业务日期当日的数据设置为有效数据
+        hql = ("UPDATE {db_name}.{table_name} {partition_sql} \n"
+               "  SET {chain_edate} = '{chain_open_date}' \n"
+               "  WHERE ".
                format(db_name=self.db_name,
                       table_name=self.table_name,
                       partition_sql=self.create_partition_sql(self.data_range,
@@ -2614,20 +2665,20 @@ class ChainTransArchive(ArchiveData):
 
         LOG.debug("先删除开区间当天的数据开链日期")
         # 避免数据重复
-        hql = ("DELETE FROM {db_name}.{table_name} {partition_sql} "
-               " WHERE ".format(db_name=self.db_name,
-                                table_name=self.table_name,
-                                partition_sql=self.create_partition_sql(
-                                    self.data_range,
-                                    self.date_scope,
-                                    self.org)
-                                ))
+        hql = ("DELETE FROM {db_name}.{table_name} {partition_sql} \n"
+               "  WHERE ".format(db_name=self.db_name,
+                                 table_name=self.table_name,
+                                 partition_sql=self.create_partition_sql(
+                                     self.data_range,
+                                     self.date_scope,
+                                     self.org)
+                                 ))
         if self.org_pos == OrgPos.COLUMN.value:
-            hql = hql + " {col_org} = '{org}' AND ".format(
-                col_org=self.col_org,
-                org=self.org
-            )
-        hql = (hql + "{chain_sdate} = '{data_date}'".
+            hql = hql + "  {col_org} = '{org}' \n" \
+                        "  AND ".format(col_org=self.col_org,
+                                        org=self.org)
+
+        hql = (hql + "  {chain_sdate} = '{data_date}'".
                format(chain_sdate=self.chain_sdate,
                       data_date=self.data_date))
         LOG.info("执行SQL :{0}".format(hql))
@@ -2635,12 +2686,12 @@ class ChainTransArchive(ArchiveData):
 
         LOG.debug("写入闭区间")
         # 发生更新的数据 将之前的数据写入闭区间
-        hql = ("UPDATE {db_name}.{table_name} {partition_sql} AS A "
-               "SET {chain_edate} = '{data_date}'  "
-               " WHERE  {where_sql} AND EXISTS "
-               "(SELECT 1 FROM {source_db}.{source_table} AS B "
-               " WHERE {pk_sql}) AND "
-               "{chain_edate} = '{chain_open_date}'".
+        hql = ("UPDATE {db_name}.{table_name} {partition_sql} AS A \n"
+               "  SET {chain_edate} = '{data_date}'  \n"
+               "  WHERE  {where_sql} AND EXISTS \n"
+               "  (SELECT 1 FROM {source_db}.{source_table} AS B \n"
+               "  WHERE {pk_sql}) AND \n"
+               "  {chain_edate} = '{chain_open_date}' ".
                format(db_name=self.db_name,
                       table_name=self.table_name,
                       partition_sql=self.create_partition_sql(self.data_range,
@@ -2661,8 +2712,8 @@ class ChainTransArchive(ArchiveData):
         LOG.info("执行SQL {0}".format(hql))
         self.hive_util.execute(hql)
         LOG.debug("写入开区间")
-        hql = ("INSERT INTO TABLE {db_name}.{table_name} {partition_sql} "
-               "SELECT '{data_date}','{chain_open_date}', ".
+        hql = ("INSERT INTO TABLE {db_name}.{table_name} {partition_sql} \n"
+               "  SELECT '{data_date}','{chain_open_date}', ".
                format(db_name=self.db_name,
                       table_name=self.table_name,
                       partition_sql=self.create_partition_sql(self.data_range,
@@ -2674,40 +2725,42 @@ class ChainTransArchive(ArchiveData):
         if self.org_pos == OrgPos.COLUMN.value:
             hql = hql + "'{0}', ".format(self.org)
         hql = (hql + self.build_load_column_sql(None, False) +
-               " FROM {source_db}.{source_table}".
+               "\n  FROM {source_db}.{source_table}".
                format(source_db=self.source_db,
                       source_table=self.source_table
                       ))
         if not StringUtil.is_blank(self.filter_sql):
             # 如果有过滤条件,加入过滤条件
-            hql = hql + " WHERE {filter_col}".format(filter_col=self.filter_sql)
+            hql = hql + "\n  WHERE {filter_col}".format(
+                filter_col=self.filter_sql)
         LOG.info("执行SQL :{0}".format(hql))
         self.hive_util.execute(hql)
         LOG.debug("----------------拉链表归档完成--------------")
 
     def close_trans_chain(self):
-        LOG.debug("------------------------封链开始----------------------------")
-        LOG.debug("先删除新分区数据")
-        hql = ("DELETE FROM {db_name}.{table_name} {partition_sql} "
-               "WHERE ".format(db_name=self.db_name,
-                               table_name=self.table_name,
-                               partition_sql=self.create_partition_sql(
-                                   self.data_range,
-                                   self.__next_date_scope,
-                                   self.org)
-                               ))
+        LOG.info("------------------------封链开始----------------------------")
+        LOG.info("先删除新分区数据")
+        hql = ("DELETE FROM {db_name}.{table_name} {partition_sql} \n"
+               "  WHERE ".format(db_name=self.db_name,
+                                 table_name=self.table_name,
+                                 partition_sql=self.create_partition_sql(
+                                     self.data_range,
+                                     self.__next_date_scope,
+                                     self.org)
+                                 ))
         if self.org_pos == OrgPos.COLUMN.value:
-            hql = hql + (" {col_org} = '{org}' AND".
+            hql = hql + (" {col_org} = '{org}' AND \n".
                          format(col_org=self.col_org,
                                 org=self.org))
-        hql = hql + ("{chain_sdate} >= '{data_date}' ".
+        hql = hql + ("  {chain_sdate} >= '{data_date}' ".
                      format(chain_sdate=self.chain_sdate,
                             data_date=self.data_date))
+        LOG.info("执行SQL:{0}".format(hql))
         self.hive_util.execute(hql)
 
-        LOG.debug("并将99991231数据写入到下一分区中")
-        hql = ("INSERT INTO TABLE {db_name}.{table_name} {partiton} "
-               "SELECT '{data_date}','{chain_open_date}', ".
+        LOG.info("并将99991231数据写入到下一分区中")
+        hql = ("INSERT INTO TABLE {db_name}.{table_name} {partiton} \n"
+               "  SELECT '{data_date}','{chain_open_date}', ".
                format(db_name=self.db_name,
                       table_name=self.table_name,
                       partiton=self.create_partition_sql(self.data_range,
@@ -2719,8 +2772,10 @@ class ChainTransArchive(ArchiveData):
         if self.org_pos == OrgPos.COLUMN.value:
             hql = hql + "'{0}',".format(self.org)
         hql = hql + (self.build_load_column_sql(None, False) +
-                     "FROM {db_name}.{table_name} WHERE {where_sql} AND "
-                     "{chain_edate} = '{chain_open_date}'".
+                     "\n  FROM {db_name}.{table_name} "
+                     "\n  WHERE {where_sql} "
+                     "\n  AND "
+                     "  {chain_edate} = '{chain_open_date}'".
                      format(db_name=self.db_name,
                             table_name=self.table_name,
                             where_sql=self.create_where_sql(None, None,
@@ -2732,9 +2787,9 @@ class ChainTransArchive(ArchiveData):
                             chain_edate=self.chain_edate,
                             chain_open_date=self.CHAIN_OPEN_DATE
                             ))
+        LOG.info("执行SQL:{0}".format(hql))
         self.hive_util.execute(hql)
-        LOG.debug("----------------------------封链完成------------------------")
-        pass
+        LOG.info("----------------------------封链完成------------------------")
 
     def build_sql_column_with_not_compare(self, table_alias):
         """
@@ -2801,9 +2856,3 @@ class ChainTransArchive(ArchiveData):
                     v = True
                     break
         return v
-
-
-if __name__ == '__main__':
-    a = AllArchive()
-    c = a.check_run_log("00000101", "20180101")
-    print c

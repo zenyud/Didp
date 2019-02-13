@@ -361,7 +361,7 @@ class MetaTableInfoHisDao(object):
                 DidpMetaTableInfoHis.SCHEMA_ID == schema_id,
                 DidpMetaTableInfoHis.TABLE_NAME == table_name,
                 DidpMetaTableInfoHis.RELEASE_DATE == data_date,
-                DidpMetaTableInfoHis.DESCRIPTION == comment
+                DidpMetaTableInfoHis.TABLE_NAME_CN == comment
             ).all()
         else:
             result = self.SESSION.query(DidpMetaTableInfoHis). \

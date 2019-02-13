@@ -46,7 +46,7 @@ class HdsStructControl(object):
             else:
                 return result
         except Exception as e:
-            print e.message
+            LOG.exception(e.message)
 
     def archive_lock(self, obj, org):
         """
@@ -145,7 +145,7 @@ class MetaDataService(object):
                                                 field.COL_DEFAULT,
                                                 field.NULL_FLAG,
                                                 "No",
-                                                field.DESCRIPTION,
+                                                field.COL_DESC,
                                                 field.COL_SEQ
                                                 )
                 hive_field_infos.append(hive_field_info)
@@ -238,7 +238,8 @@ class MetaDataService(object):
 
             # 判断表备注是否发生变化
             table_comment_change = self.get_table_comment_change_result(
-                source_table_comment, meta_table_info.DESCRIPTION, common_dict)
+                source_table_comment, meta_table_info.TABLE_NAME_CN,
+                common_dict)
             if not is_change and not table_comment_change:
                 LOG.debug("当日表元数据已登记,无需再登记 ！")
                 return
@@ -282,7 +283,8 @@ class MetaDataService(object):
             LAST_UPDATE_USER=LAST_UPDATE_USER,
             TABLE_NAME=table_name,
             BUCKET_NUM=bucket_num,
-            DESCRIPTION=source_table_comment,
+            TABLE_NAME_CN=source_table_comment,
+            DESCRIPTION="表生成",
             RELEASE_DATE=data_date,
             TABLE_STATUS="2"
         )
@@ -298,7 +300,8 @@ class MetaDataService(object):
             LAST_UPDATE_USER=LAST_UPDATE_USER,
             TABLE_NAME=table_name,
             BUCKET_NUM=bucket_num,
-            DESCRIPTION=source_table_comment,
+            TABLE_NAME_CN=source_table_comment,
+            DESCRIPTION="表生成",
             RELEASE_DATE=data_date,
             TABLE_STATUS="2"
         )
@@ -324,7 +327,7 @@ class MetaDataService(object):
                 LAST_UPDATE_USER=LAST_UPDATE_USER,
                 COL_SEQ=filed.col_seq,
                 COL_NAME=filed.col_name,
-                DESCRIPTION=filed.comment,
+                COL_DESC=filed.comment,
                 COL_TYPE=filed.data_type,
                 COL_LENGTH=filed.col_length,
                 COL_SCALE=filed.col_scale,
@@ -342,7 +345,7 @@ class MetaDataService(object):
                 LAST_UPDATE_USER=LAST_UPDATE_USER,
                 COL_SEQ=filed.col_seq,
                 COL_NAME=filed.col_name,
-                DESCRIPTION=filed.comment,
+                COL_DESC=filed.comment,
                 COL_TYPE=filed.data_type,
                 COL_LENGTH=filed.col_length,
                 COL_SCALE=filed.col_scale,
@@ -413,8 +416,8 @@ class MetaDataService(object):
 
                     if comment_change.upper().__eq__("TRUE"):
                         comment1 = source_field.comment if source_field.comment else ""
-                        comment2 = meta_field_info[j].DESCRIPTION if \
-                            meta_field_info[j].DESCRIPTION else ""
+                        comment2 = meta_field_info[j].COL_DESC if \
+                            meta_field_info[j].COL_DESC else ""
                         if not comment1.__eq__(comment2):
                             return True
 
@@ -461,23 +464,23 @@ class MetaDataService(object):
             for entity in entity_list:
                 if StringUtil.eq_ignore(bean.COL_NAME, entity.col_name):
 
-                    if bean.DESCRIPTION is None:
-                        bean.DESCRIPTION = ""
+                    if bean.COL_DESC is None:
+                        bean.COL_DESC = ""
                     if entity.comment is None:
                         entity.comment = ""
 
                     if not StringUtil.is_blank(
                             entity.comment) and not StringUtil.eq_ignore(
-                        bean.DESCRIPTION, entity.comment):
+                        bean.COL_DESC, entity.comment):
                         LOG.debug("更新DDL备注，field = {0},comment = {1}".format(
                             bean.COL_NAME, entity.comment))
                         # 更新
                         self.meta_column_info_dao.update_meta_column(
                             bean.TABLE_ID,
-                            bean.COL_NAME, {"DESCRIPTION": entity.comment})
+                            bean.COL_NAME, {"COL_DESC": entity.comment})
                         self.meta_column_info_his_dao.update_meta_column_his(
                             bean.TABLE_ID,
-                            bean.COL_NAME, {"DESCRIPTION": entity.comment}
+                            bean.COL_NAME, {"COL_DESC": entity.comment}
                         )
 
     def update_meta_info(self, table_id, schema_id, table_name, bucket_num,
@@ -509,7 +512,8 @@ class MetaDataService(object):
                 LAST_UPDATE_USER=LAST_UPDATE_USER,
                 TABLE_NAME=table_name,
                 BUCKET_NUM=bucket_num,
-                DESCRIPTION=source_table_comment,
+                TABLE_NAME_CN=source_table_comment,
+                DESCRIPTION="字段更新",
                 RELEASE_DATE=data_date,
                 TABLE_STATUS="2"
             )
@@ -527,7 +531,8 @@ class MetaDataService(object):
                 LAST_UPDATE_USER=LAST_UPDATE_USER,
                 TABLE_NAME=table_name,
                 BUCKET_NUM=bucket_num,
-                DESCRIPTION=source_table_comment,
+                TABLE_NAME_CN=source_table_comment,
+                DESCRIPTION="字段更新" ,
                 RELEASE_DATE=data_date,
                 TABLE_STATUS="2"  # 发布状态
             )
@@ -550,7 +555,7 @@ class MetaDataService(object):
                         LAST_UPDATE_USER=LAST_UPDATE_USER,
                         COL_SEQ=field.col_seq,
                         COL_NAME=field.col_name,
-                        DESCRIPTION=field.comment,
+                        COL_DESC=field.comment,
                         COL_TYPE=field.data_type,
                         COL_LENGTH=field.col_length,
                         COL_SCALE=field.col_scale,
@@ -567,7 +572,7 @@ class MetaDataService(object):
                         LAST_UPDATE_USER=LAST_UPDATE_USER,
                         COL_SEQ=field.col_seq,
                         COL_NAME=field.col_name,
-                        DESCRIPTION=field.comment,
+                        COL_DESC=field.comment,
                         COL_TYPE=field.data_type,
                         COL_LENGTH=field.col_length,
                         COL_SCALE=field.col_scale,
@@ -587,7 +592,7 @@ class MetaDataService(object):
                                            {
                                                "LAST_UPDATE_TIME": last_update_time,
                                                "LAST_UPDATE_USER": LAST_UPDATE_USER,
-                                               "DESCRIPTION": field.comment,
+                                               "COL_DESC": field.comment,
                                                "COL_TYPE": field.data_type,
                                                "COL_LENGTH": field.col_length,
                                                "COL_SCALE": field.col_scale,
@@ -604,7 +609,7 @@ class MetaDataService(object):
                         LAST_UPDATE_USER=LAST_UPDATE_USER,
                         COL_SEQ=field.col_seq,
                         COL_NAME=field.col_name,
-                        DESCRIPTION=field.comment,
+                        COL_DESC=field.comment,
                         COL_TYPE=field.data_type,
                         COL_LENGTH=field.col_length,
                         COL_SCALE=field.col_scale,
@@ -620,7 +625,6 @@ class MetaDataService(object):
                 # 无需更新
                 LOG.debug("无新增字段或字段精度变化 ")
             else:
-                meta_col_names = [x.COL_NAME for x in meta_field_info]
                 for field in source_field_info:
                     ddl_type = MetaTypeInfo(field.data_type, field.col_length,
                                             field.col_scale)
@@ -629,6 +633,8 @@ class MetaDataService(object):
                     meta_type = MetaTypeInfo(meta_field.COL_TYPE,
                                              meta_field.COL_LENGTH,
                                              meta_field.COL_SCALE)
+
+                    # 检查是否有字段精度的 更新
                     if not ddl_type.__eq__(meta_type):
                         # 对字段类型进行更新
                         LOG.debug("字段精度更新")
@@ -654,7 +660,7 @@ class MonRunLogService(object):
     def create_run_log(self, didp_mon_run_log):
         """
             新增运行执行日志
-        :param didp_mon_run_log 执行日志对象:
+        :param didp_mon_run_log:  执行日志对象
         :return:
         """
         self.mon_run_log_dao.add_mon_run_log(didp_mon_run_log)
@@ -720,7 +726,8 @@ class MonRunLogService(object):
         :param batch_no:
         :return:
         """
-        return self.mon_run_log_dao.get_mon_run_log(pro_id, biz_date, org, batch_no)
+        return self.mon_run_log_dao.get_mon_run_log(pro_id, biz_date, org,
+                                                    batch_no)
 
     def insert_log_his(self, mon_run_log_his):
         """

@@ -216,6 +216,13 @@ class BatchArchiveInit(object):
                             format(db_name=self.db_name,
                                    table_name=self.table_name))[0][0]
             self.reject_lines = int(self.source_count) - int(self.archive_count)
+
+            if self.reject_lines != 0 and not self.ignore_err_line:
+                # 如果不忽视错误行 则抛出异常
+                raise BizException("归档条数 ：{archive} 与入库条数 {source}:不一致 如需忽视错误行，"
+                                   "请在参数中加入 -igErr 1 ".
+                                   format(archive=int(self.archive_count),
+                                          source=int(self.source_count)))
         except Exception as e:
             traceback.print_exc()
             self.error_msg = str(e.message)
@@ -333,10 +340,10 @@ class BatchArchiveInit(object):
                 col_org=self.partition_org)
         # 若存在分区字段
         if len(part_sql) > 0:
-            hql = hql + " PARTITIONED BY ( " + part_sql[:-1] + ") \n"
+            hql = hql + "  PARTITIONED BY ( " + part_sql[:-1] + ") \n"
         # 分桶
-        hql = hql + ("clustered by ({CLUSTER_COL}) into {BUCKET_NUM} \n"
-                     " BUCKETS  STORED AS orc \n"
+        hql = hql + ("  CLUSTERED BY ({CLUSTER_COL}) INTO {BUCKET_NUM} \n"
+                     "  BUCKETS  STORED AS orc \n"
                      "tblproperties('orc.compress'='SNAPPY' ,"
                      "'transactional'='true')".
                      format(CLUSTER_COL=self.cluster_col,
@@ -378,11 +385,14 @@ class BatchArchiveInit(object):
         is_contain_error = False
         date = ""
         hql = (
-            " select  from_unixtime(unix_timestamp(`{date_col}`,'{date_format}'),"
-            "'yyyyMMdd') as {col_date},count(1) \n"
-            "from {source_db}.{source_table_name} \n"
-            " group by from_unixtime(unix_timestamp(`{date_col}`,'{date_format}'),'yyyyMMdd') \n "
-            " order by {col_date} ".format(date_col=self.date_col,
+            "  SELECT  from_unixtime(unix_timestamp(`{date_col}`,'{date_format}'),"
+            "'yyyyMMdd') AS {col_date},count(1) \n"
+            "  FROM\n"
+            "    {source_db}.{source_table_name} \n"
+            "  GROUP BY\n"
+            "    from_unixtime(unix_timestamp(`{date_col}`,'{date_format}'),'yyyyMMdd') \n "
+            "  ORDER BY \n"
+            "    {col_date} ".format(date_col=self.date_col,
                                            date_format=self.date_format,
                                            col_date=self.col_date,
                                            source_db=self.source_db,
@@ -431,10 +441,13 @@ class BatchArchiveInit(object):
             加载数据
         :return:
         """
-        hql = " FROM {source_db}.{source_table} INSERT INTO  table \n" \
-              " {db_name}.{table_name} {partition} \n" \
-              " SELECT from_unixtime(unix_timestamp(`{date_col}`,'{date_col_format}')," \
-              "'yyyyMMdd') as {col_date}, " \
+        hql = "  FROM {source_db}.{source_table} " \
+              "  INSERT INTO  TABLE \n" \
+              "    {db_name}.{table_name} \n" \
+              "  {partition} \n" \
+              "  SELECT \n" \
+              "    from_unixtime(unix_timestamp(`{date_col}`,'{date_col_format}')," \
+              "'yyyyMMdd') AS {col_date}, " \
             .format(source_db=self.source_db,
                     source_table=self.source_table_name,
                     db_name=self.db_name,
@@ -468,19 +481,27 @@ class BatchArchiveInit(object):
                         format(time_str=time_str,
                                partition_date_scope=self.partition_date_scope),
                 DatePartitionRange.QUARTER_YEAR.value:
-                    " (CASE  WHEN substr({time_str},5,2)>=01 and \n"
-                    " substr({time_str},5,2) <=03 then  \n"
-                    " concat(substr({time_str},1,4),'Q1') \n"
-                    "  when substr({time_str},5,2)>=04 and \n"
-                    " substr({time_str},5,2) <=06 then \n"
-                    " concat(substr({time_str},1,4),'Q2') \n"
-                    "  when substr({time_str},5,2)>=07 and \n"
-                    " substr({time_str},5,2) <=09 then \n"
-                    " concat(substr({time_str},1,4),'Q3') \n"
-                    " when substr({time_str},5,2)>=10 and \n"
-                    " substr({time_str},5,2) <=12 then \n"
-                    " concat(substr({time_str},1,4),'Q4') \n"
-                    " end ) as {partition_date_scope}  ,".
+                    "(CASE  WHEN \n"
+                    "  substr({time_str},5,2)>=01 AND \n"
+                    "  substr({time_str},5,2) <=03 \n"
+                    " THEN  \n"
+                    "   concat(substr({time_str},1,4),'Q1') \n"
+                    " WHEN \n"
+                    "  substr({time_str},5,2)>=04 AND \n"
+                    "  substr({time_str},5,2) <=06 \n"
+                    " THEN \n"
+                    "  concat(substr({time_str},1,4),'Q2') \n"
+                    " WHEN \n "
+                    "  substr({time_str},5,2)>=07 AND \n"
+                    "  substr({time_str},5,2) <=09 \n"
+                    " THEN \n"
+                    "  concat(substr({time_str},1,4),'Q3') \n"
+                    " WHEN \n"
+                    "  substr({time_str},5,2)>=10 AND \n"
+                    "  substr({time_str},5,2) <=12 \n"
+                    " THEN \n"
+                    "  concat(substr({time_str},1,4),'Q4') \n"
+                    " END ) AS {partition_date_scope}  ,".
                         format(time_str=time_str,
                                partition_date_scope=self.partition_date_scope
                                )
@@ -489,7 +510,7 @@ class BatchArchiveInit(object):
 
         hql = hql + switch_data_range(self.data_range)
         if self.org_pos == OrgPos.PARTITION.value:
-            hql = hql + " '{org}' as {partition_org},". \
+            hql = hql + " '{org}' AS {partition_org},". \
                 format(org=self.org,
                        partition_org=self.partition_org)
         LOG.info("执行SQL:{0}".format(hql[:-1]))
@@ -548,7 +569,7 @@ class BatchArchiveInit(object):
             hql = hql + "{partiton_org} ,".format(
                 partiton_org=self.partition_org)
 
-        return " partition (" + hql[:-1] + ")"
+        return " PARTITION (" + hql[:-1] + ")"
 
 
 if __name__ == '__main__':
