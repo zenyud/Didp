@@ -169,10 +169,11 @@ class MetaDataService(object):
         cols = hive_util.get_table_desc(db_name, table_name)
 
         filter_col_list = None
+        #  过滤不需要的字段
         if filter_cols:
             filter_col_list = [col.upper() for col in filter_cols.split(",")]
 
-        i = 0
+        i = 0  # 字段序号从0开始
         for col in cols:
             col_name = col[0]
             if StringUtil.eq_ignore("# Partition Information", col_name):
@@ -229,7 +230,7 @@ class MetaDataService(object):
             # 获取元数据DDL 信息
             table_id = meta_table_info.TABLE_ID
             meta_field_info = self.meta_column_info_dao.get_meta_data_by_table(
-                table_id)  # 比较当日多个版本的 元数据
+                table_id)    # 获取表字段元数据
 
             # 判断是否发生 表结构变更
             is_change = self.get_change_result(source_field_info,
@@ -532,7 +533,7 @@ class MetaDataService(object):
                 TABLE_NAME=table_name,
                 BUCKET_NUM=bucket_num,
                 TABLE_NAME_CN=source_table_comment,
-                DESCRIPTION="字段更新" ,
+                DESCRIPTION="字段更新",
                 RELEASE_DATE=data_date,
                 TABLE_STATUS="2"  # 发布状态
             )

@@ -52,7 +52,7 @@ class ArchiveData(object):
     archive_count = 0  # 归档数据条数
     pro_start_date = None  # 流程开始时间
     pro_end_date = None  # 流程结束时间
-    pro_status = "1"  # 加工状态
+    __PRO_STATUS = "1"  # 加工状态
     error_msg = ""  # 错误信息
     is_already_load = False  # 是否已经归档完成
 
@@ -354,7 +354,7 @@ class ArchiveData(object):
             DatePartitionRange.ALL_IN_ONE.value: ("", "", "")
         }
         # 获取分区范围，开始日期，结束日期
-        x, y, z = switch[self.__args.dtRange]
+        x, y, z = switch[self.data_range]
         self.date_scope = x
         self.start_date = y
         self.end_date = z
@@ -1001,7 +1001,7 @@ class ArchiveData(object):
                                          PROCESS_TYPE=PROCESS_TYPE,  # 加工类型
                                          PROCESS_STARTTIME=self.pro_start_date,
                                          PROCESS_ENDTIME=self.pro_end_date,
-                                         PROCESS_STATUS=self.pro_status,
+                                         PROCESS_STATUS=self.__PRO_STATUS,
                                          INPUT_LINES=self.source_count,
                                          OUTPUT_LINES=self.archive_count,
                                          REJECT_LINES=reject_count,
@@ -1113,7 +1113,7 @@ class ArchiveData(object):
         except Exception as e:
             traceback.print_exc()
             self.error_msg = str(e.message)
-            self.pro_status = "0"
+            self.__PRO_STATUS = "0"
             LOG.error("归档失败")
         finally:
 
@@ -1128,7 +1128,7 @@ class ArchiveData(object):
             self.is_already_load = True
             LOG.info("删除临时表")
             self.clean()
-            if self.pro_status == "1":
+            if self.__PRO_STATUS == "1":
                 LOG.info("归档成功")
             if self.session:
                 self.session.close()  # 关闭连接
@@ -1340,8 +1340,8 @@ class LastAllArchive(ArchiveData):
         execute_sql = execute_sql + ("\n  CLUSTERED  BY ({CLUSTER_COL}) "
                                      "INTO {BUCKET_NUM} BUCKETS \n"
                                      "  STORED AS ORC \n"
-                                     "  tblproperties('orc.compress'='SNAPPY' ,"
-                                     "'transactional'='true')".
+                                     "  TBLPROPERTIES('ORC.COMPRESS'='SNAPPY' ,"
+                                     "'TRANSACTIONAL'='TRUE')".
                                      format(CLUSTER_COL=self.cluster_col,
                                             BUCKET_NUM=self.buckets_num))
         LOG.info("建表语句为：%s " % execute_sql)
@@ -1794,7 +1794,7 @@ class AddArchive(ArchiveData):
                                         None
                                     )
                                     ))
-                LOG.debug("------ 构建的语句是 :{0}".format(build_cols))
+                # LOG.debug("------ 构建的语句是 :{0}".format(build_cols))
 
             # 往日增量
             sql = sql + " SELECT {COL_DATE},".format(COL_DATE=self.col_date)
@@ -2295,8 +2295,8 @@ class ChainTransArchive(ArchiveData):
     def __init__(self):
         super(ChainTransArchive, self).__init__()
 
-        self.chain_sdate = self.common_dict.get(AddColumn.CHAIN_SDATE.value)
-        self.chain_edate = self.common_dict.get(AddColumn.CHAIN_EDATE.value)
+        self.__chain_sdate = self.common_dict.get(AddColumn.CHAIN_SDATE.value)
+        self.__chain_edate = self.common_dict.get(AddColumn.CHAIN_EDATE.value)
 
         self.print_save_mode()
         # 拉链表不做比较的字段
@@ -2374,7 +2374,7 @@ class ChainTransArchive(ArchiveData):
             self.columns = self.not_compare_column.split(",")
 
     def count_archive_data(self):
-        hql = "select count(1) from {db_name}.{table_name} ".format(
+        hql = "SELECT COUNT(1) FROM {db_name}.{table_name} ".format(
             db_name=self.source_db,
             table_name=self.source_table)
         r = self.hive_util.execute_sql(hql)
@@ -2387,8 +2387,8 @@ class ChainTransArchive(ArchiveData):
                "  ({chain_sdate} varchar(10),{chain_edate} varchar(10), ".
                format(db_name=self.db_name,
                       table_name=self.table_name,
-                      chain_sdate=self.chain_sdate,
-                      chain_edate=self.chain_edate
+                      chain_sdate=self.__chain_sdate,
+                      chain_edate=self.__chain_edate
                       ))
         if self.org_pos == OrgPos.COLUMN.value:
             hql = hql + "{col_org} string ,".format(
@@ -2441,7 +2441,7 @@ class ChainTransArchive(ArchiveData):
                            self.date_scope,
                            self.org
                        ),
-                       chain_edate=self.chain_edate,
+                       chain_edate=self.__chain_edate,
                        chain_open_date=self.CHAIN_OPEN_DATE
 
                        ))
@@ -2450,7 +2450,7 @@ class ChainTransArchive(ArchiveData):
                 col_org=self.col_org,
                 org=self.org
             )
-        hql = hql + self.chain_edate + "= '{0}'".format(self.data_date)
+        hql = hql + self.__chain_edate + "= '{0}'".format(self.data_date)
         LOG.info("执行SQL: {0}".format(hql))
         self.hive_util.execute(hql)
 
@@ -2469,7 +2469,7 @@ class ChainTransArchive(ArchiveData):
                 col_org=self.col_org,
                 org=self.org
             )
-        hql = hql + self.chain_sdate + "= '{0}'".format(self.data_date)
+        hql = hql + self.__chain_sdate + "= '{0}'".format(self.data_date)
         LOG.info("执行SQL {0}".format(hql))
         self.hive_util.execute(hql)
 
@@ -2512,7 +2512,7 @@ class ChainTransArchive(ArchiveData):
                         partition_sql=self.create_partition_sql(self.data_range,
                                                                 self.date_scope,
                                                                 self.org),
-                        chain_sdate=self.chain_sdate,
+                        chain_sdate=self.__chain_sdate,
                         data_date=self.data_date
                         ))
         if self.org_pos == OrgPos.COLUMN.value:
@@ -2530,7 +2530,7 @@ class ChainTransArchive(ArchiveData):
                                                         self.org,
                                                         None
                                                         ),
-                        chain_edate=self.chain_edate,
+                        chain_edate=self.__chain_edate,
                         chain_open_date=self.CHAIN_OPEN_DATE,
                         source_db=self.source_db,
                         source_table=self.source_table
@@ -2570,7 +2570,7 @@ class ChainTransArchive(ArchiveData):
                                             self.org_pos,
                                             self.org,
                                             None),
-            chain_edate=self.chain_edate,
+            chain_edate=self.__chain_edate,
             chain_open_date=self.CHAIN_OPEN_DATE,
             on_key=self.build_key_sql_on("A", "B", self.pk_list),
             col1=self.build_sql_column_with_not_compare("A"),
@@ -2581,12 +2581,13 @@ class ChainTransArchive(ArchiveData):
         self.hive_util.execute(hql)
 
         LOG.debug("2、通过临时表主键（闭链为当天）删除正式表闭链时间99991231中数据")
-        # 删除旧数据
+        #  因为临时表中已经存在了这部分数据 所以需要将旧数据删除
+        #  删除旧数据
         hql = ("DELETE FROM {db_name}.{table_name} {partition_sql} AS A \n"
                "  WHERE {where_sql} \n"
                "  AND EXISTS \n"
                "  (SELECT * FROM {temp_db}.{app_table} AS B \n"
-               "   WHERE {key_list} AND {chain_edate} ='{data_date}' ) \n"
+               "   WHERE {key_list} AND {chain_edate} ='{data_date}' ) \n" 
                "   AND {chain_edate} = '{chain_open_date}' "
                .format(db_name=self.db_name,
                        table_name=self.table_name,
@@ -2605,7 +2606,7 @@ class ChainTransArchive(ArchiveData):
                        temp_db=self.temp_db,
                        app_table=self.app_table_name1,
                        key_list=self.build_key_sql_on("B", "A", self.pk_list),
-                       chain_edate=self.chain_edate,
+                       chain_edate=self.__chain_edate,
                        data_date=self.data_date,
                        chain_open_date=self.CHAIN_OPEN_DATE
                        ))
@@ -2621,8 +2622,8 @@ class ChainTransArchive(ArchiveData):
                       partition_sql=self.create_partition_sql(self.data_range,
                                                               self.date_scope,
                                                               self.org),
-                      chain_sdate=self.chain_sdate,
-                      chain_edate=self.chain_edate
+                      chain_sdate=self.__chain_sdate,
+                      chain_edate=self.__chain_edate
                       ))
         if self.org_pos == OrgPos.COLUMN.value:
             hql = hql + "'{0}', ".format(self.org)
@@ -2640,6 +2641,9 @@ class ChainTransArchive(ArchiveData):
 
     def load_data_trans_add(self):
         LOG.debug("----------------拉链表归档--------------")
+
+        # 更新当天的闭链区和删除当天的开链区的数据都是为了避免数据重复
+        # 都是为了当日重做数据
         LOG.debug("更新当天闭链区的数据为99991231")
         #  把业务日期当日的数据设置为有效数据
         hql = ("UPDATE {db_name}.{table_name} {partition_sql} \n"
@@ -2650,15 +2654,16 @@ class ChainTransArchive(ArchiveData):
                       partition_sql=self.create_partition_sql(self.data_range,
                                                               self.date_scope,
                                                               self.org),
-                      chain_edate=self.chain_edate,
+                      chain_edate=self.__chain_edate,
                       chain_open_date=self.CHAIN_OPEN_DATE
                       ))
+        # 判断机构字段位置
         if self.org_pos == OrgPos.COLUMN.value:
             hql = (hql + "{col_org} = '{org}' AND ".
                    format(col_org=self.col_org,
                           org=self.org))
         hql = (hql + "{chain_edate} = '{data_date}' ".
-               format(chain_edate=self.chain_edate,
+               format(chain_edate=self.__chain_edate,
                       data_date=self.data_date))
         LOG.info("执行SQL :{0}".format(hql))
         self.hive_util.execute(hql)
@@ -2679,13 +2684,14 @@ class ChainTransArchive(ArchiveData):
                                         org=self.org)
 
         hql = (hql + "  {chain_sdate} = '{data_date}'".
-               format(chain_sdate=self.chain_sdate,
+               format(chain_sdate=self.__chain_sdate,
                       data_date=self.data_date))
         LOG.info("执行SQL :{0}".format(hql))
+        # 当日重做 SQL
         self.hive_util.execute(hql)
 
         LOG.debug("写入闭区间")
-        # 发生更新的数据 将之前的数据写入闭区间
+        # 发生更新的数据 则将之前的数据写入闭区间
         hql = ("UPDATE {db_name}.{table_name} {partition_sql} AS A \n"
                "  SET {chain_edate} = '{data_date}'  \n"
                "  WHERE  {where_sql} AND EXISTS \n"
@@ -2697,7 +2703,7 @@ class ChainTransArchive(ArchiveData):
                       partition_sql=self.create_partition_sql(self.data_range,
                                                               self.date_scope,
                                                               self.org),
-                      chain_edate=self.chain_edate,
+                      chain_edate=self.__chain_edate,
                       data_date=self.data_date,
                       where_sql=self.create_where_sql("A", None,
                                                       self.data_range,
@@ -2712,6 +2718,7 @@ class ChainTransArchive(ArchiveData):
         LOG.info("执行SQL {0}".format(hql))
         self.hive_util.execute(hql)
         LOG.debug("写入开区间")
+        # 直接将新增数据写入
         hql = ("INSERT INTO TABLE {db_name}.{table_name} {partition_sql} \n"
                "  SELECT '{data_date}','{chain_open_date}', ".
                format(db_name=self.db_name,
@@ -2753,8 +2760,9 @@ class ChainTransArchive(ArchiveData):
                          format(col_org=self.col_org,
                                 org=self.org))
         hql = hql + ("  {chain_sdate} >= '{data_date}' ".
-                     format(chain_sdate=self.chain_sdate,
+                     format(chain_sdate=self.__chain_sdate,
                             data_date=self.data_date))
+   
         LOG.info("执行SQL:{0}".format(hql))
         self.hive_util.execute(hql)
 
@@ -2784,9 +2792,10 @@ class ChainTransArchive(ArchiveData):
                                                             self.org_pos,
                                                             self.org,
                                                             None),
-                            chain_edate=self.chain_edate,
+                            chain_edate=self.__chain_edate,
                             chain_open_date=self.CHAIN_OPEN_DATE
                             ))
+
         LOG.info("执行SQL:{0}".format(hql))
         self.hive_util.execute(hql)
         LOG.info("----------------------------封链完成------------------------")
