@@ -454,7 +454,7 @@ class ArchiveData(object):
                """
         change_detail_buffer = ""
 
-        self.get_fields_rank_list(self.__args.db, self.__args.table,
+        self.get_fields_rank_list(self.db_name, self.table_name,
                                   self.data_date)
 
         if self.field_change_list:
@@ -724,7 +724,6 @@ class ArchiveData(object):
             装载数据
         :return:
         """
-        pass
 
     def create_partition_sql(self, partition_range, date_scope, org):
         """
@@ -954,7 +953,6 @@ class ArchiveData(object):
     # def delete_exists_archive(self):
     #     pass
 
-    @abc.abstractmethod
     def register_run_log(self):
         """
             登记执行日志
@@ -1159,8 +1157,6 @@ class LastAddArchive(ArchiveData):
     def clean(self):
         super(LastAddArchive, self).clean()
 
-    def register_run_log(self):
-        super(LastAddArchive, self).register_run_log()
 
     def init_ext(self):
         if int(self.source_data_mode) != SourceDataMode.ADD.value:
@@ -1273,9 +1269,6 @@ class LastAllArchive(ArchiveData):
 
     def clean(self):
         super(LastAllArchive, self).clean()
-
-    def register_run_log(self):
-        super(LastAllArchive, self).register_run_log()
 
     def init_ext(self):
         # 判断是否存在主键信息
@@ -1480,9 +1473,6 @@ class AddArchive(ArchiveData):
     def clean(self):
         super(AddArchive, self).clean()
 
-    def register_run_log(self):
-        super(AddArchive, self).register_run_log()
-        pass
 
     def init_ext(self):
         # 判断SourceDataMode
@@ -1503,7 +1493,7 @@ class AddArchive(ArchiveData):
                         self.table_name_all)
 
     def count_archive_data(self):
-        HQL = ("SELECT COUNT(1) FROM {DB_NAME}.{TABLE_NAME} WHERE {WHERE_SQL}".
+        hql = ("SELECT COUNT(1) FROM {DB_NAME}.{TABLE_NAME} WHERE {WHERE_SQL}".
                format(DB_NAME=self.db_name,
                       TABLE_NAME=self.table_name,
                       WHERE_SQL=self.create_where_sql("", self.data_date,
@@ -1513,7 +1503,7 @@ class AddArchive(ArchiveData):
                                                       self.org,
                                                       None
                                                       )))
-        x = self.hive_util.execute_sql(HQL)
+        x = self.hive_util.execute_sql(hql)
         count = int(x[0][0])
         if self.source_data_mode == SourceDataMode.ALL.value:
             LOG.info("-----全量数据源增量入库：-----\n"
@@ -1562,12 +1552,6 @@ class AddArchive(ArchiveData):
         LOG.info("执行SQL: {0}".format(hql))
         self.hive_util.execute(hql)
 
-    def change_table_columns(self):
-        """
-         根据DDL变化信息增加表字段
-        :return:
-        """
-        super(AddArchive, self).change_table_columns()
 
     def load_data(self):
         LOG.debug("先根据数据日期删除表中数据")
@@ -1910,8 +1894,6 @@ class AllArchive(ArchiveData):
         if self.is_drop_tmp_table:
             self.drop_table(self.temp_db, self.app_table_name1)
 
-    def register_run_log(self):
-        super(AllArchive, self).register_run_log()
 
     def init_ext(self):
         source_data_mode = int(self.source_data_mode)
@@ -1928,7 +1910,7 @@ class AllArchive(ArchiveData):
                                                 table_name))
 
     def count_archive_data(self):
-        HQL = ("SELECT COUNT(1) FROM {DB_NAME}.{TABLE_NAME} WHERE {WHERE_SQL}".
+        hql = ("SELECT COUNT(1) FROM {DB_NAME}.{TABLE_NAME} WHERE {WHERE_SQL}".
                format(DB_NAME=self.db_name,
                       TABLE_NAME=self.table_name,
                       WHERE_SQL=self.create_where_sql("", self.data_date,
@@ -1937,8 +1919,8 @@ class AllArchive(ArchiveData):
                                                       self.org_pos,
                                                       self.org,
                                                       None)))
-        LOG.info("执行SQL：{0}".format(HQL))
-        x = self.hive_util.execute_sql(HQL)
+        LOG.info("执行SQL：{0}".format(hql))
+        x = self.hive_util.execute_sql(hql)
         count = int(x[0][0])
         if self.source_data_mode == SourceDataMode.ADD.value:
             LOG.info("----- 增量数据源全量入库：----- \n"
@@ -1986,9 +1968,6 @@ class AllArchive(ArchiveData):
                             BUCKET_NUM=self.buckets_num))
         LOG.info("执行SQL:{0}".format(hql))
         self.hive_util.execute(hql)
-
-    def change_table_columns(self):
-        super(AllArchive, self).change_table_columns()
 
     def load_data(self):
         #  先根据数据日期删除表中数据
@@ -2303,7 +2282,6 @@ class ChainTransArchive(ArchiveData):
 
     @property
     def not_compare_column(self):
-
         not_compare_column = self.common_dict.get("chain.notcompare.column")
         return not_compare_column
 
@@ -2312,9 +2290,6 @@ class ChainTransArchive(ArchiveData):
         if self.is_already_load:
             if self.is_drop_table1:
                 self.drop_table(self.temp_db, self.app_table_name1)
-
-    def register_run_log(self):
-        super(ChainTransArchive, self).register_run_log()
 
     def init_ext(self):
         pk_list = self.pk_list
@@ -2762,7 +2737,7 @@ class ChainTransArchive(ArchiveData):
         hql = hql + ("  {chain_sdate} >= '{data_date}' ".
                      format(chain_sdate=self.__chain_sdate,
                             data_date=self.data_date))
-   
+
         LOG.info("执行SQL:{0}".format(hql))
         self.hive_util.execute(hql)
 
